@@ -3,6 +3,7 @@
 # (https://docs.langchain.com/oss/python/langchain/knowledge-base)
 
 import os
+import hashlib
 
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
@@ -11,7 +12,26 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
 
 
+def deterministic_chunk_id(document):
+    metadata = document.metadata or {}
+    source = metadata.get("source", "unknown_source")
+    page = metadata.get("page", "unknown_page")
+    start_index = metadata.get("start_index", "unknown_start")
+
+    id_seed = f"{source}|{page}|{start_index}"
+    # Keep IDs stable even if metadata is missing or duplicated.
+    if "unknown_" in id_seed:
+        content_hash = hashlib.sha256(document.page_content.encode("utf-8")).hexdigest()[:16]
+        id_seed = f"{id_seed}|{content_hash}"
+
+    return hashlib.sha256(id_seed.encode("utf-8")).hexdigest()
+
+
 def main():
+
+    # size of initial set of retrieved chunks
+    k = 5
+
     print("Hello from rag-system!\n")
 
     # Load environment variables
@@ -20,9 +40,13 @@ def main():
         raise RuntimeError("OPENAI_API_KEY is not set. Add it to your " \
             "environment .env file.")
 
+
     ###################################################
-    ######## 1. Documents and document loaders ########
+    ########            1. INDEXING            ########
     ###################################################
+
+    
+    ######## 1.1 Documents and document loaders ########
     file_path = "./pdf_documents/GPT-4 Technical Report (small 3 pages).pdf"
     loader = PyPDFLoader(file_path)
 
@@ -56,9 +80,7 @@ def main():
     #     print(split)
 
 
-    ###################################################
-    ########            2. Embeddings          ########
-    ###################################################
+    ################ 1.2 Embeddings  ################
     embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
 
     vector_1 = embeddings.embed_query(all_splits[0].page_content)
@@ -71,10 +93,7 @@ def main():
     # print(vector_1[:10])
 
 
-    ###################################################
-    ########           3. Vector Store         ########
-    ###################################################
-
+    ################ 1.3 Vector Store ################
     # instantiate vector store
     vector_store = Chroma(
         collection_name="documents_collection",
@@ -83,15 +102,34 @@ def main():
     )
 
     # index the documents
-    document_ids = vector_store.add_documents(documents=all_splits)
+    document_ids = [deterministic_chunk_id(doc) for doc in all_splits]
+    vector_store.add_documents(documents=all_splits, ids=document_ids)
 
 
-    query = "How many distribution centers does Nike have in the US?"
-    print(f"\n{query}")
-    results = vector_store.similarity_search(query)
+    ###################################################
+    ########           2. RAG CHAIN            ########
+    ###################################################
+    print("=" * 50)
 
-    print(results[0])
+    # transform the vector store into a retriever for easier usage in chain
+    query = input("Please enter your query: ")
 
+    # 2.1 vector based semantic search
+    base_retriever = vector_store.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k" : k} # initial candidate pool
+    )
+
+
+    candidate_chunks = base_retriever.invoke(query)
+    
+    print(f"\nCandidate chunks (k={k}):")
+    for candidate_chunk in candidate_chunks:
+        print()
+        print(f"chunk id: {candidate_chunk.id}")
+        print(candidate_chunk.page_content)
+        print()
+        print("-" * 50)
 
 
 if __name__ == "__main__":
