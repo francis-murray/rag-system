@@ -8,6 +8,7 @@ from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
+from langchain_chroma import Chroma
 
 
 def main():
@@ -66,8 +67,31 @@ def main():
     assert len(vector_1) == len(vector_2)
 
     print(f"Generated vectors of length {len(vector_1)}\n")
-    print("First 10 dimensions of the embedding vector:")
-    print(vector_1[:10])
+    # print("First 10 dimensions of the embedding vector:")
+    # print(vector_1[:10])
+
+
+    ###################################################
+    ########           3. Vector Store         ########
+    ###################################################
+
+    # instantiate vector store
+    vector_store = Chroma(
+        collection_name="documents_collection",
+        embedding_function=embeddings,
+        persist_directory="./chroma_langchain_db",
+    )
+
+    # index the documents
+    document_ids = vector_store.add_documents(documents=all_splits)
+
+
+    query = "How many distribution centers does Nike have in the US?"
+    print(f"\n{query}")
+    results = vector_store.similarity_search(query)
+
+    print(results[0])
+
 
 
 if __name__ == "__main__":
