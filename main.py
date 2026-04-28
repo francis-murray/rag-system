@@ -4,12 +4,14 @@
 
 import os
 import hashlib
+import numpy as np
 
 from dotenv import load_dotenv
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from langchain_chroma import Chroma
+from sentence_transformers import CrossEncoder
 
 
 def deterministic_chunk_id(document):
@@ -30,7 +32,7 @@ def deterministic_chunk_id(document):
 def main():
 
     # size of initial set of retrieved chunks
-    k = 5
+    k = 3
 
     print("Hello from rag-system!\n")
 
@@ -123,13 +125,36 @@ def main():
 
     candidate_chunks = base_retriever.invoke(query)
     
+    
+    sentence_pairs = []
+
     print(f"\nCandidate chunks (k={k}):")
     for candidate_chunk in candidate_chunks:
         print()
         print(f"chunk id: {candidate_chunk.id}")
         print(candidate_chunk.page_content)
+
+        sentence_pairs.append([query, candidate_chunk.page_content])
         print()
         print("-" * 50)
+
+    # 2.2 Re-rank using Cross-Encoders for sentence pair scoring
+    cross_encoder_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
+    scores = cross_encoder_model.predict(sentence_pairs)
+
+    print(f"\nScores: {scores}")
+
+    sorted_idx = np.argsort(scores)
+    print(f"\nSorted indices: {sorted_idx}")
+
+    print(f"\nSorted chunks and metadata:\n")
+    for i, idx in enumerate(sorted_idx):
+        print("-" * 50)
+        print(f"Ranking: {i+1}")
+        print(f"Source: {candidate_chunks[idx].metadata['source']}")
+        print(f"Page: {candidate_chunks[idx].metadata['page']}")
+        print(f"Content: {candidate_chunks[idx].page_content}")
+    
 
 
 if __name__ == "__main__":
