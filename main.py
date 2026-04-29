@@ -1,20 +1,20 @@
-# Semantic search part inspired by 
-# "Build a semantic search engine with LangChain" tutorial 
+# Semantic search part inspired by
+# "Build a semantic search engine with LangChain" tutorial
 # (https://docs.langchain.com/oss/python/langchain/knowledge-base)
 
-import os
 import hashlib
-import numpy as np
+import os
 
+import numpy as np
 from dotenv import load_dotenv
+from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
-from langchain_chroma import Chroma
 from sentence_transformers import CrossEncoder
 
 
-def load_pdf(file_path):    
+def load_pdf(file_path):
     # PyPDFLoader loads one Document object per PDF page
     loader = PyPDFLoader(file_path)
     documents = loader.load()
@@ -23,14 +23,18 @@ def load_pdf(file_path):
 
 def split_documents(documents, chunk_size, chunk_overlap, add_start_index):
     text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size, chunk_overlap=chunk_overlap, add_start_index=add_start_index
+        chunk_size=chunk_size,
+        chunk_overlap=chunk_overlap,
+        add_start_index=add_start_index,
     )
     all_splits = text_splitter.split_documents(documents)
 
     return all_splits
 
 
-def create_vectorstore_from_chunks(collection_name, embedding_function, persist_directory, chunks):
+def create_vectorstore_from_chunks(
+    collection_name, embedding_function, persist_directory, chunks
+):
     # instantiate vector store
     vector_store = Chroma(
         collection_name=collection_name,
@@ -54,7 +58,9 @@ def deterministic_chunk_id(document):
     id_seed = f"{source}|{page}|{start_index}"
     # Keep IDs stable even if metadata is missing or duplicated.
     if "unknown_" in id_seed:
-        content_hash = hashlib.sha256(document.page_content.encode("utf-8")).hexdigest()[:16]
+        content_hash = hashlib.sha256(
+            document.page_content.encode("utf-8")
+        ).hexdigest()[:16]
         id_seed = f"{id_seed}|{content_hash}"
 
     return hashlib.sha256(id_seed.encode("utf-8")).hexdigest()
@@ -80,7 +86,7 @@ def get_query_from_user():
 def query_candidate_chunks_from_vectorstore(vector_store, num_candidates, query):
     base_retriever = vector_store.as_retriever(
         search_type="similarity",
-        search_kwargs={"k" : num_candidates} # initial candidate pool
+        search_kwargs={"k": num_candidates},  # initial candidate pool
     )
 
     candidate_chunks = base_retriever.invoke(query)
@@ -111,7 +117,7 @@ def rerank_pairs(cross_encoder_model_name, sentence_pairs):
 
     sorted_idx = np.argsort(scores)[::-1]
     print(f"\nSorted indices: {sorted_idx}")
-    
+
     sorted_scores = scores[sorted_idx]
     print(f"\nSorted scores: {sorted_scores}")
 
@@ -128,9 +134,9 @@ def main():
     # Load environment variables
     load_dotenv()
     if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError("OPENAI_API_KEY is not set. Add it to your " \
-            "environment .env file.")
-
+        raise RuntimeError(
+            "OPENAI_API_KEY is not set. Add it to your environment .env file."
+        )
 
     ###################################################
     ########            1. INDEXING            ########
@@ -140,22 +146,24 @@ def main():
     # 1.1 Load documents
     file_path = "./pdf_documents/GPT-4 Technical Report (small 3 pages).pdf"
     docs = load_pdf(file_path)
-    print(f"Number of pages in {file_path.split("/")[-1]}: {len(docs)}")
+    print(f"Number of pages in {file_path.split('/')[-1]}: {len(docs)}")
 
     # 1.2 Split our documents into chunks
-    all_splits = split_documents(docs, chunk_size=500, chunk_overlap=100, add_start_index=True)
-    print(f"Number of splits in {file_path.split("/")[-1]}: {len(all_splits)}")
+    all_splits = split_documents(
+        docs, chunk_size=500, chunk_overlap=100, add_start_index=True
+    )
+    print(f"Number of splits in {file_path.split('/')[-1]}: {len(all_splits)}")
 
     # 1.3 Get embeddings function
     embeddings = get_embedding_function(openai_model_name="text-embedding-3-large")
 
     # 1.4 Create Vector Store
     vector_store, document_ids = create_vectorstore_from_chunks(
-        collection_name="documents_collection", 
-        embedding_function=embeddings, 
-        persist_directory= "./chroma_langchain_db",
-        chunks=all_splits)
-
+        collection_name="documents_collection",
+        embedding_function=embeddings,
+        persist_directory="./chroma_langchain_db",
+        chunks=all_splits,
+    )
 
     ###################################################
     ########           2. RAG CHAIN            ########
@@ -167,10 +175,9 @@ def main():
 
     # 2.2 vector based semantic search
     candidate_chunks = query_candidate_chunks_from_vectorstore(
-        vector_store=vector_store, 
-        num_candidates=k, 
-        query=query)
-    
+        vector_store=vector_store, num_candidates=k, query=query
+    )
+
     # 2.3 Re-rank using Cross-Encoders for sentence pair scoring
     sentence_pairs = create_sentence_pairs(query, candidate_chunks)
     sorted_idx, _ = rerank_pairs("cross-encoder/ms-marco-MiniLM-L6-v2", sentence_pairs)
@@ -179,7 +186,7 @@ def main():
     print(f"\nTop 3 results:\n")
     for i, idx in enumerate(sorted_idx[:3]):
         print("-" * 50)
-        print(f"\nRanking: {i+1}")
+        print(f"\nRanking: {i + 1}")
         print(f"Source: {candidate_chunks[idx].metadata['source']}")
         print(f"Page: {candidate_chunks[idx].metadata['page']}")
         print(f"\nContent: \n{candidate_chunks[idx].page_content}\n")
