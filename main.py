@@ -14,6 +14,37 @@ from langchain_chroma import Chroma
 from sentence_transformers import CrossEncoder
 
 
+def load_pdf(file_path):    
+    # PyPDFLoader loads one Document object per PDF page
+    loader = PyPDFLoader(file_path)
+    documents = loader.load()
+    return documents
+
+
+def split_documents(documents, chunk_size, chunk_overlap, add_start_index):
+    text_splitter = RecursiveCharacterTextSplitter(
+        chunk_size=chunk_size, chunk_overlap=chunk_overlap, add_start_index=add_start_index
+    )
+    all_splits = text_splitter.split_documents(documents)
+
+    return all_splits
+
+
+def create_vectorstore_from_chunks(collection_name, embedding_function, persist_directory, chunks):
+    # instantiate vector store
+    vector_store = Chroma(
+        collection_name=collection_name,
+        embedding_function=embedding_function,
+        persist_directory=persist_directory,
+    )
+
+    # index the documents
+    document_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
+    vector_store.add_documents(documents=chunks, ids=document_ids)
+
+    return vector_store, document_ids
+
+
 def deterministic_chunk_id(document):
     metadata = document.metadata or {}
     source = metadata.get("source", "unknown_source")
@@ -29,10 +60,68 @@ def deterministic_chunk_id(document):
     return hashlib.sha256(id_seed.encode("utf-8")).hexdigest()
 
 
+def get_embedding_function(openai_model_name="text-embedding-3-large"):
+    embeddings = OpenAIEmbeddings(model=openai_model_name)
+
+    vector_1 = embeddings.embed_query("first chunk")
+    vector_2 = embeddings.embed_query("This is another chunk")
+
+    assert len(vector_1) == len(vector_2)
+    print(f"Generated vectors of length {len(vector_1)}\n")
+
+    return embeddings
+
+
+def get_query_from_user():
+    query = input("Please enter your query: ")
+    return query
+
+
+def query_candidate_chunks_from_vectorstore(vector_store, num_candidates, query):
+    base_retriever = vector_store.as_retriever(
+        search_type="similarity",
+        search_kwargs={"k" : num_candidates} # initial candidate pool
+    )
+
+    candidate_chunks = base_retriever.invoke(query)
+    return candidate_chunks
+
+
+def create_sentence_pairs(query, candidate_chunks):
+    sentence_pairs = []
+
+    print(f"\nCandidate chunks ({len(candidate_chunks)}):")
+    for candidate_chunk in candidate_chunks:
+        print()
+        print(f"chunk id: {candidate_chunk.id}")
+        print(candidate_chunk.page_content)
+
+        sentence_pairs.append([query, candidate_chunk.page_content])
+        print()
+        print("-" * 50)
+
+    return sentence_pairs
+
+
+def rerank_pairs(cross_encoder_model_name, sentence_pairs):
+    cross_encoder_model = CrossEncoder(cross_encoder_model_name)
+    scores = cross_encoder_model.predict(sentence_pairs)
+
+    print(f"\nScores: {scores}")
+
+    sorted_idx = np.argsort(scores)[::-1]
+    print(f"\nSorted indices: {sorted_idx}")
+    
+    sorted_scores = scores[sorted_idx]
+    print(f"\nSorted scores: {sorted_scores}")
+
+    return sorted_idx, sorted_scores
+
+
 def main():
 
     # size of initial set of retrieved chunks
-    k = 3
+    k = 10
 
     print("Hello from rag-system!\n")
 
@@ -46,115 +135,54 @@ def main():
     ###################################################
     ########            1. INDEXING            ########
     ###################################################
+    print("[ ] Indexing documents...")
 
-    
-    ######## 1.1 Documents and document loaders ########
+    # 1.1 Load documents
     file_path = "./pdf_documents/GPT-4 Technical Report (small 3 pages).pdf"
-    loader = PyPDFLoader(file_path)
-
-    docs = loader.load()
-
-    # PyPDFLoader loads one Document object per PDF page
+    docs = load_pdf(file_path)
     print(f"Number of pages in {file_path.split("/")[-1]}: {len(docs)}")
 
-
-    # print the first 50 chars and metadata of the first 3 pages of the pdf
-    # print()
-    # for i in range(0, 3):
-    #     print("=" * 50)
-    #     print(f"\nPage {i+1}'s content first 200 chars: ")
-    #     print(f"{docs[i].page_content[:200]}\n")
-
-    #     print(f"Page {i+1}'s metadata: ")
-    #     print(docs[i].metadata)
-
-
-    # split our documents into chunks 
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=500, chunk_overlap=100, add_start_index=True
-    )
-    all_splits = text_splitter.split_documents(docs)
+    # 1.2 Split our documents into chunks
+    all_splits = split_documents(docs, chunk_size=500, chunk_overlap=100, add_start_index=True)
     print(f"Number of splits in {file_path.split("/")[-1]}: {len(all_splits)}")
 
-    # print("First 5 chunks:")
-    # for split in all_splits[:3]:
-    #     print()
-    #     print(split)
+    # 1.3 Get embeddings function
+    embeddings = get_embedding_function(openai_model_name="text-embedding-3-large")
 
-
-    ################ 1.2 Embeddings  ################
-    embeddings = OpenAIEmbeddings(model="text-embedding-3-large")
-
-    vector_1 = embeddings.embed_query(all_splits[0].page_content)
-    vector_2 = embeddings.embed_query(all_splits[1].page_content)
-
-    assert len(vector_1) == len(vector_2)
-
-    print(f"Generated vectors of length {len(vector_1)}\n")
-    # print("First 10 dimensions of the embedding vector:")
-    # print(vector_1[:10])
-
-
-    ################ 1.3 Vector Store ################
-    # instantiate vector store
-    vector_store = Chroma(
-        collection_name="documents_collection",
-        embedding_function=embeddings,
-        persist_directory="./chroma_langchain_db",
-    )
-
-    # index the documents
-    document_ids = [deterministic_chunk_id(doc) for doc in all_splits]
-    vector_store.add_documents(documents=all_splits, ids=document_ids)
+    # 1.4 Create Vector Store
+    vector_store, document_ids = create_vectorstore_from_chunks(
+        collection_name="documents_collection", 
+        embedding_function=embeddings, 
+        persist_directory= "./chroma_langchain_db",
+        chunks=all_splits)
 
 
     ###################################################
     ########           2. RAG CHAIN            ########
     ###################################################
-    print("=" * 50)
+    print("[ ] Retrieval Augmented Generation...")
 
-    # transform the vector store into a retriever for easier usage in chain
-    query = input("Please enter your query: ")
+    # 2.1 Get query from user
+    query = get_query_from_user()
 
-    # 2.1 vector based semantic search
-    base_retriever = vector_store.as_retriever(
-        search_type="similarity",
-        search_kwargs={"k" : k} # initial candidate pool
-    )
-
-
-    candidate_chunks = base_retriever.invoke(query)
+    # 2.2 vector based semantic search
+    candidate_chunks = query_candidate_chunks_from_vectorstore(
+        vector_store=vector_store, 
+        num_candidates=k, 
+        query=query)
     
-    
-    sentence_pairs = []
+    # 2.3 Re-rank using Cross-Encoders for sentence pair scoring
+    sentence_pairs = create_sentence_pairs(query, candidate_chunks)
+    sorted_idx, _ = rerank_pairs("cross-encoder/ms-marco-MiniLM-L6-v2", sentence_pairs)
 
-    print(f"\nCandidate chunks (k={k}):")
-    for candidate_chunk in candidate_chunks:
-        print()
-        print(f"chunk id: {candidate_chunk.id}")
-        print(candidate_chunk.page_content)
-
-        sentence_pairs.append([query, candidate_chunk.page_content])
-        print()
+    # 2.3 Print results
+    print(f"\nTop 3 results:\n")
+    for i, idx in enumerate(sorted_idx[:3]):
         print("-" * 50)
-
-    # 2.2 Re-rank using Cross-Encoders for sentence pair scoring
-    cross_encoder_model = CrossEncoder("cross-encoder/ms-marco-MiniLM-L6-v2")
-    scores = cross_encoder_model.predict(sentence_pairs)
-
-    print(f"\nScores: {scores}")
-
-    sorted_idx = np.argsort(scores)
-    print(f"\nSorted indices: {sorted_idx}")
-
-    print(f"\nSorted chunks and metadata:\n")
-    for i, idx in enumerate(sorted_idx):
-        print("-" * 50)
-        print(f"Ranking: {i+1}")
+        print(f"\nRanking: {i+1}")
         print(f"Source: {candidate_chunks[idx].metadata['source']}")
         print(f"Page: {candidate_chunks[idx].metadata['page']}")
-        print(f"Content: {candidate_chunks[idx].page_content}")
-    
+        print(f"\nContent: \n{candidate_chunks[idx].page_content}\n")
 
 
 if __name__ == "__main__":
