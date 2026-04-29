@@ -35,16 +35,33 @@ def split_documents(documents, chunk_size, chunk_overlap, add_start_index):
 def create_vectorstore_from_chunks(
     collection_name, embedding_function, persist_directory, chunks
 ):
-    # instantiate vector store
+    # Instantiate vector store (loads existing persisted collection if present).
     vector_store = Chroma(
         collection_name=collection_name,
         embedding_function=embedding_function,
         persist_directory=persist_directory,
     )
 
-    # index the documents
+    # Build deterministic ids so we can upsert only missing chunks.
     document_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
-    vector_store.add_documents(documents=chunks, ids=document_ids)
+
+    # Check which ids already exist to avoid re-embedding and duplicate indexing.
+    existing = vector_store.get(ids=document_ids)
+    existing_ids = set(existing.get("ids", []))
+
+    chunks_to_add = []
+    ids_to_add = []
+    for chunk, doc_id in zip(chunks, document_ids):
+        if doc_id in existing_ids:
+            continue
+        chunks_to_add.append(chunk)
+        ids_to_add.append(doc_id)
+
+    if chunks_to_add:
+        vector_store.add_documents(documents=chunks_to_add, ids=ids_to_add)
+        print(f"Indexed {len(chunks_to_add)} new chunks.")
+    else:
+        print("Using existing vector store; no new chunks to index.")
 
     return vector_store, document_ids
 
