@@ -124,6 +124,22 @@ def rerank_pairs(cross_encoder_model_name, sentence_pairs):
     return sorted_idx, sorted_scores
 
 
+def get_top_k_chunks(candidate_chunks, sorted_idx, k):
+
+    top_k_chunk = []
+
+    for idx in sorted_idx[:k]:
+        top_k_chunk.append(
+            {
+                "source": candidate_chunks[idx].metadata["source"],
+                "page": candidate_chunks[idx].metadata["page"],
+                "start_index": candidate_chunks[idx].metadata["start_index"],
+                "content": candidate_chunks[idx].page_content,
+            }
+        )
+    return top_k_chunk
+
+
 def main():
 
     # size of initial set of retrieved chunks
@@ -150,7 +166,7 @@ def main():
 
     # 1.2 Split our documents into chunks
     all_splits = split_documents(
-        docs, chunk_size=500, chunk_overlap=100, add_start_index=True
+        docs, chunk_size=800, chunk_overlap=100, add_start_index=True
     )
     print(f"Number of splits in {file_path.split('/')[-1]}: {len(all_splits)}")
 
@@ -182,14 +198,18 @@ def main():
     sentence_pairs = create_sentence_pairs(query, candidate_chunks)
     sorted_idx, _ = rerank_pairs("cross-encoder/ms-marco-MiniLM-L6-v2", sentence_pairs)
 
-    # 2.3 Print results
-    print(f"\nTop 3 results:\n")
-    for i, idx in enumerate(sorted_idx[:3]):
+    # 2.3 Get top k results with metadata
+    top_k_chunks = get_top_k_chunks(candidate_chunks, sorted_idx, k=3)
+
+    # 2.4 Print results
+    print(f"\nTop {len(top_k_chunks)} results:\n")
+    for i, chunk in enumerate(top_k_chunks):
         print("-" * 50)
         print(f"\nRanking: {i + 1}")
-        print(f"Source: {candidate_chunks[idx].metadata['source']}")
-        print(f"Page: {candidate_chunks[idx].metadata['page']}")
-        print(f"\nContent: \n{candidate_chunks[idx].page_content}\n")
+        print(f"Source: {chunk['source']}")
+        print(f"Page: {chunk['page'] + 1}")
+        print(f"Start index: {chunk['start_index']}")
+        print(f"Content: {chunk['content']}")
 
 
 if __name__ == "__main__":
