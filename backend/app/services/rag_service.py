@@ -5,7 +5,6 @@
 import hashlib
 import re
 from pathlib import Path
-from typing import Any
 
 import numpy as np
 from langchain_chroma import Chroma
@@ -16,10 +15,25 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
+from backend.app.schemas import ChunkWithMetadata, CitedChunk
+
+
+class AnswerWithCitations(BaseModel):
+    """An answer to the question, grounded only in the provided context."""
+
+    answer: str = Field(description="Short answer grounded only in provided context.")
+    citations: list[int] = Field(
+        description="1-based context block ids used to support the answer."
+    )
+
+
+# Matches inline citations like "[1]" or "[12]" in the LLM answer.
+CITATION_MARKER_PATTERN = re.compile(r"\[(\d+)\]")
+
 
 def run_rag_query(
     query: str,
-) -> tuple["AnswerWithCitations", dict[int, dict[str, Any]], list[int]]:
+) -> tuple[AnswerWithCitations, list[CitedChunk]]:
 
     # size of initial set of retrieved chunks
     k = 10
@@ -53,9 +67,7 @@ def run_rag_query(
         collection_name="documents_collection",
         embedding_function=embeddings,
         persist_directory=str(
-            Path(__file__).resolve().parents[3] 
-            / "data" 
-            / "chroma_langchain_db"
+            Path(__file__).resolve().parents[3] / "data" / "chroma_langchain_db"
         ),
         chunks=all_splits,
     )
@@ -69,7 +81,6 @@ def run_rag_query(
     candidate_chunks = query_candidate_chunks_from_vectorstore(
         vector_store=vector_store, num_candidates=k, query=query
     )
-
 
     ###################################################
     ########        3. RE-RANKING STAGE        ########
@@ -89,14 +100,12 @@ def run_rag_query(
     print(f"\nTop {len(top_k_chunks)} results:\n")
     for i, chunk in enumerate(top_k_chunks):
         print(f"\nRanking: {i + 1}")
-        print(f"Document ID: {chunk['document_id']}")
-        print(f"Source: {chunk['source']}")
-        print(f"Page: {chunk['page'] + 1}")
-        print(f"Start index: {chunk['start_index']}")
-        print(f"Content: {chunk['content']}")
+        print(f"Document ID: {chunk.document_id}")
+        print(f"Source: {chunk.source}")
+        print(f"Page: {chunk.page + 1}")
+        print(f"Start index: {chunk.start_index}")
+        print(f"Content: {chunk.content}")
         print("-" * 50)
-
-
 
     ###################################################
     ########        4. GENERATION STAGE        ########
@@ -112,7 +121,7 @@ def run_rag_query(
             answer="I don't know (retrieved context confidence is too low).",
             citations=[],
         )
-        return fallback, {}, []
+        return fallback, []
 
     citation_map, context_text = build_context_for_llm(top_k_chunks)
     print("=" * 50)
@@ -124,7 +133,9 @@ def run_rag_query(
         structured.answer, structured.citations, citation_map
     )
 
-    return structured, citation_map, cited_indices
+    cited_chunks = get_cited_chunks(citation_map, cited_indices)
+
+    return structured, cited_chunks
 
 
 def load_pdf(file_path: str):
@@ -132,6 +143,11 @@ def load_pdf(file_path: str):
     print(f"    Loading {Path(file_path).name}...")
     loader = PyPDFLoader(file_path)
     documents = loader.load()
+
+    # reduce source to filename only instead of whole path
+    file_name = Path(file_path).name
+    for doc in documents:
+        doc.metadata["source"] = file_name
     return documents
 
 
@@ -252,37 +268,26 @@ def rerank_pairs(cross_encoder_model_name, sentence_pairs):
     return sorted_idx, sorted_scores
 
 
-def get_top_k_chunks(candidate_chunks, sorted_idx, k):
+def get_top_k_chunks(candidate_chunks, sorted_idx, k) -> list[ChunkWithMetadata]:
 
-    top_k_chunks = []
+    top_k_chunks: list[ChunkWithMetadata] = []
 
     for idx in sorted_idx[:k]:
         top_k_chunks.append(
-            {
-                "document_id": candidate_chunks[idx].id,
-                "source": candidate_chunks[idx].metadata["source"],
-                "page": candidate_chunks[idx].metadata["page"],
-                "start_index": candidate_chunks[idx].metadata["start_index"],
-                "content": candidate_chunks[idx].page_content,
-            }
+            ChunkWithMetadata(
+                document_id=candidate_chunks[idx].id,
+                source=candidate_chunks[idx].metadata["source"],
+                page=candidate_chunks[idx].metadata["page"],
+                start_index=candidate_chunks[idx].metadata["start_index"],
+                content=candidate_chunks[idx].page_content,
+            )
         )
     return top_k_chunks
 
 
-# Matches inline citations like "[1]" or "[12]" in the LLM answer.
-CITATION_MARKER_PATTERN = re.compile(r"\[(\d+)\]")
-
-
-class AnswerWithCitations(BaseModel):
-    """An answer to the question, grounded only in the provided context."""
-
-    answer: str = Field(description="Short answer grounded only in provided context.")
-    citations: list[int] = Field(
-        description="1-based context block ids used to support the answer."
-    )
-
-
-def build_context_for_llm(top_k_chunks):
+def build_context_for_llm(
+    top_k_chunks: list[ChunkWithMetadata],
+) -> tuple[dict[int, ChunkWithMetadata], str]:
     """Build a 1-indexed citation map and a single context string for the LLM.
 
     Each context block is prefixed with "[idx]" so the LLM can copy the same
@@ -293,17 +298,17 @@ def build_context_for_llm(top_k_chunks):
     blocks = []
     for idx, chunk in citation_map.items():
         blocks.append(
-            f"[{idx}] source={chunk['source']} "
-            f"page={chunk['page'] + 1} "
-            f"start_index={chunk['start_index']}\n"
-            f"{chunk['content']}"
+            f"[{idx}] source={chunk.source} "
+            f"page={chunk.page + 1} "
+            f"start_index={chunk.start_index}\n"
+            f"{chunk.content}"
         )
     return citation_map, "\n\n".join(blocks)
 
 
 def generate_answer(
     query: str, context_text: str, model: str = "gpt-5.5"
-) -> "AnswerWithCitations":
+) -> AnswerWithCitations:
     """Ask the LLM to answer the question using only the provided context."""
     client = OpenAI()
     response = client.responses.parse(
@@ -358,3 +363,11 @@ def collect_cited_indices(answer, structured_citations, citation_map):
             ordered.append(idx)
 
     return ordered
+
+
+def get_cited_chunks(citation_map, cited_indices) -> list[CitedChunk]:
+    """Return the chunks corresponding to the cited indices."""
+    return [
+        CitedChunk(citation_index=idx, **citation_map[idx].model_dump())
+        for idx in cited_indices
+    ]
