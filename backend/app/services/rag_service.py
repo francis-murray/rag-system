@@ -3,11 +3,11 @@
 # (https://docs.langchain.com/oss/python/langchain/knowledge-base)
 
 import hashlib
-import os
 import re
+from pathlib import Path
+from typing import Any
 
 import numpy as np
-from dotenv import load_dotenv
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_openai import OpenAIEmbeddings
@@ -15,6 +15,103 @@ from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
+
+
+def run_rag_query(
+    query: str,
+) -> tuple["AnswerWithCitations", dict[int, dict[str, Any]], list[int]]:
+
+    # size of initial set of retrieved chunks
+    k = 10
+
+    ###################################################
+    ########            1. INDEXING            ########
+    ###################################################
+    print("[ ] Indexing documents...")
+
+    # 1.1 Load documents
+    file_path = str(
+        Path(__file__).resolve().parents[3]
+        / "data"
+        / "pdf_documents"
+        / "GPT-4 Technical Report.pdf"
+    )
+    docs = load_pdf(file_path)
+    print(f"Number of pages in {file_path.split('/')[-1]}: {len(docs)}")
+
+    # 1.2 Split our documents into chunks
+    all_splits = split_documents(
+        docs, chunk_size=500, chunk_overlap=100, add_start_index=True
+    )
+    print(f"Number of splits in {file_path.split('/')[-1]}: {len(all_splits)}")
+
+    # 1.3 Get embeddings function
+    embeddings = get_embedding_function(openai_model_name="text-embedding-3-large")
+
+    # 1.4 Create Vector Store
+    persist_directory = str(
+        Path(__file__).resolve().parents[3] / "data" / "chroma_langchain_db"
+    )
+
+    vector_store, document_ids = create_vectorstore_from_chunks(
+        collection_name="documents_collection",
+        embedding_function=embeddings,
+        persist_directory=persist_directory,
+        chunks=all_splits,
+    )
+
+    ###################################################
+    ########           2. RAG CHAIN            ########
+    ###################################################
+
+    # 2.2 vector based semantic search
+    candidate_chunks = query_candidate_chunks_from_vectorstore(
+        vector_store=vector_store, num_candidates=k, query=query
+    )
+
+    # 2.3 Re-rank using Cross-Encoders for sentence pair scoring
+    sentence_pairs = create_sentence_pairs(query, candidate_chunks)
+    sorted_idx, sorted_scores = rerank_pairs(
+        "cross-encoder/ms-marco-MiniLM-L6-v2", sentence_pairs
+    )
+
+    # 2.3 Get top k results with metadata
+    top_k_chunks = get_top_k_chunks(candidate_chunks, sorted_idx, k=3)
+
+    # 2.4 Print results
+    print("=" * 50)
+    print(f"\nTop {len(top_k_chunks)} results:\n")
+    for i, chunk in enumerate(top_k_chunks):
+        print(f"\nRanking: {i + 1}")
+        print(f"Document ID: {chunk['document_id']}")
+        print(f"Source: {chunk['source']}")
+        print(f"Page: {chunk['page'] + 1}")
+        print(f"Start index: {chunk['start_index']}")
+        print(f"Content: {chunk['content']}")
+        print("-" * 50)
+
+    # 2.5 Answer the question using an LLM and the top k chunks as context.
+    # If retrieval confidence is too low, avoid forcing a hallucinated answer.
+    best_rerank_score = sorted_scores[0] if len(sorted_scores) > 0 else -1.0
+    rerank_confidence_threshold = 0.2
+    if best_rerank_score < rerank_confidence_threshold:
+        fallback = AnswerWithCitations(
+            answer="I don't know (retrieved context confidence is too low).",
+            citations=[],
+        )
+        return fallback, {}, []
+
+    citation_map, context_text = build_context_for_llm(top_k_chunks)
+    print("=" * 50)
+    print(f"\nContext_text:\n{context_text}\n")
+
+    structured = generate_answer(query, context_text)
+
+    cited_indices = collect_cited_indices(
+        structured.answer, structured.citations, citation_map
+    )
+
+    return structured, citation_map, cited_indices
 
 
 def load_pdf(file_path):
@@ -96,11 +193,6 @@ def get_embedding_function(openai_model_name="text-embedding-3-large"):
     print(f"Generated vectors of length {len(vector_1)}")
 
     return embeddings
-
-
-def get_query_from_user():
-    query = input("Please enter your query: ")
-    return query
 
 
 def query_candidate_chunks_from_vectorstore(vector_store, num_candidates, query):
@@ -194,7 +286,9 @@ def build_context_for_llm(top_k_chunks):
     return citation_map, "\n\n".join(blocks)
 
 
-def generate_answer(query, context_text, model="gpt-5.5"):
+def generate_answer(
+    query: str, context_text: str, model: str = "gpt-5.5"
+) -> "AnswerWithCitations":
     """Ask the LLM to answer the question using only the provided context."""
     client = OpenAI()
     response = client.responses.parse(
@@ -225,7 +319,10 @@ def generate_answer(query, context_text, model="gpt-5.5"):
         ],
         text_format=AnswerWithCitations,
     )
-    return response.output_parsed
+    parsed = response.output_parsed
+    if parsed is None:
+        raise RuntimeError("Model returned no structured output.")
+    return parsed
 
 
 def collect_cited_indices(answer, structured_citations, citation_map):
@@ -246,122 +343,3 @@ def collect_cited_indices(answer, structured_citations, citation_map):
             ordered.append(idx)
 
     return ordered
-
-
-def print_cited_passages(citation_map, cited_indices):
-    """Print the cited passages below the answer using their original ids.
-
-    The numbers here match the inline [N] markers in the answer text.
-    """
-    if not cited_indices:
-        print("\nNo context block citations found in the response.")
-        return
-
-    print("\nCited passages:")
-    for idx in cited_indices:
-        chunk = citation_map[idx]
-        print("-" * 50)
-        print(f"[{idx}] {chunk['source']} (page {chunk['page'] + 1})")
-        print(chunk["content"])
-
-
-def main():
-
-    # size of initial set of retrieved chunks
-    k = 10
-
-    print("Hello from rag-system!\n")
-
-    # Load environment variables
-    load_dotenv()
-    if not os.getenv("OPENAI_API_KEY"):
-        raise RuntimeError(
-            "OPENAI_API_KEY is not set. Add it to your environment .env file."
-        )
-
-    ###################################################
-    ########            1. INDEXING            ########
-    ###################################################
-    print("[ ] Indexing documents...")
-
-    # 1.1 Load documents
-    file_path = "./pdf_documents/GPT-4 Technical Report.pdf"
-    docs = load_pdf(file_path)
-    print(f"Number of pages in {file_path.split('/')[-1]}: {len(docs)}")
-
-    # 1.2 Split our documents into chunks
-    all_splits = split_documents(
-        docs, chunk_size=500, chunk_overlap=100, add_start_index=True
-    )
-    print(f"Number of splits in {file_path.split('/')[-1]}: {len(all_splits)}")
-
-    # 1.3 Get embeddings function
-    embeddings = get_embedding_function(openai_model_name="text-embedding-3-large")
-
-    # 1.4 Create Vector Store
-    vector_store, document_ids = create_vectorstore_from_chunks(
-        collection_name="documents_collection",
-        embedding_function=embeddings,
-        persist_directory="./chroma_langchain_db",
-        chunks=all_splits,
-    )
-
-    ###################################################
-    ########           2. RAG CHAIN            ########
-    ###################################################
-    print("\n[ ] Retrieval Augmented Generation...")
-
-    # 2.1 Get query from user
-    query = get_query_from_user()
-
-    # 2.2 vector based semantic search
-    candidate_chunks = query_candidate_chunks_from_vectorstore(
-        vector_store=vector_store, num_candidates=k, query=query
-    )
-
-    # 2.3 Re-rank using Cross-Encoders for sentence pair scoring
-    sentence_pairs = create_sentence_pairs(query, candidate_chunks)
-    sorted_idx, sorted_scores = rerank_pairs(
-        "cross-encoder/ms-marco-MiniLM-L6-v2", sentence_pairs
-    )
-
-    # 2.3 Get top k results with metadata
-    top_k_chunks = get_top_k_chunks(candidate_chunks, sorted_idx, k=3)
-
-    # 2.4 Print results
-    print("=" * 50)
-    print(f"\nTop {len(top_k_chunks)} results:\n")
-    for i, chunk in enumerate(top_k_chunks):
-        print(f"\nRanking: {i + 1}")
-        print(f"Document ID: {chunk['document_id']}")
-        print(f"Source: {chunk['source']}")
-        print(f"Page: {chunk['page'] + 1}")
-        print(f"Start index: {chunk['start_index']}")
-        print(f"Content: {chunk['content']}")
-        print("-" * 50)
-
-    # 2.5 Answer the question using an LLM and the top k chunks as context.
-    # If retrieval confidence is too low, avoid forcing a hallucinated answer.
-    best_rerank_score = sorted_scores[0] if len(sorted_scores) > 0 else -1.0
-    rerank_confidence_threshold = 0.2
-    if best_rerank_score < rerank_confidence_threshold:
-        print("\nResponse:\n I don't know (retrieved context confidence is too low).")
-        return
-
-    citation_map, context_text = build_context_for_llm(top_k_chunks)
-    print("=" * 50)
-    print(f"\nContext_text:\n{context_text}\n")
-
-    structured = generate_answer(query, context_text)
-
-    cited_indices = collect_cited_indices(
-        structured.answer, structured.citations, citation_map
-    )
-
-    print("=" * 50)
-    print(f"Response:\n {structured.answer}")
-    print_cited_passages(citation_map, cited_indices)
-
-
-if __name__ == "__main__":
-    main()
