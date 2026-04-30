@@ -25,11 +25,11 @@ def run_rag_query(
     k = 10
 
     ###################################################
-    ########            1. INDEXING            ########
+    ########      1. INDEXING STAGE            ########
     ###################################################
-    print("[ ] Indexing documents...")
+    print("[ ] Indexing stage...")
 
-    # 1.1 Load documents
+    # Load documents
     file_path = str(
         Path(__file__).resolve().parents[3]
         / "data"
@@ -37,49 +37,55 @@ def run_rag_query(
         / "GPT-4 Technical Report.pdf"
     )
     docs = load_pdf(file_path)
-    print(f"Number of pages in {file_path.split('/')[-1]}: {len(docs)}")
+    print(f"    Number of pages in {file_path.split('/')[-1]}: {len(docs)}")
 
-    # 1.2 Split our documents into chunks
+    # Split our documents into chunks
     all_splits = split_documents(
         docs, chunk_size=500, chunk_overlap=100, add_start_index=True
     )
-    print(f"Number of splits in {file_path.split('/')[-1]}: {len(all_splits)}")
+    print(f"    Number of splits in {file_path.split('/')[-1]}: {len(all_splits)}")
 
-    # 1.3 Get embeddings function
+    # Get embeddings function
     embeddings = get_embedding_function(openai_model_name="text-embedding-3-large")
 
-    # 1.4 Create Vector Store
-    persist_directory = str(
-        Path(__file__).resolve().parents[3] / "data" / "chroma_langchain_db"
-    )
-
+    # Create Vector Store
     vector_store, document_ids = create_vectorstore_from_chunks(
         collection_name="documents_collection",
         embedding_function=embeddings,
-        persist_directory=persist_directory,
+        persist_directory=str(
+            Path(__file__).resolve().parents[3] 
+            / "data" 
+            / "chroma_langchain_db"
+        ),
         chunks=all_splits,
     )
 
     ###################################################
-    ########           2. RAG CHAIN            ########
+    ########        2. RETRIEVAL STAGE         ########
     ###################################################
+    print("[ ] Retrieval stage...")
 
-    # 2.2 vector based semantic search
+    # Vector based semantic search
     candidate_chunks = query_candidate_chunks_from_vectorstore(
         vector_store=vector_store, num_candidates=k, query=query
     )
 
-    # 2.3 Re-rank using Cross-Encoders for sentence pair scoring
+
+    ###################################################
+    ########        3. RE-RANKING STAGE        ########
+    ###################################################
+    print("[ ] Re-ranking stage...")
+
+    # Re-rank using Cross-Encoders for sentence pair scoring
     sentence_pairs = create_sentence_pairs(query, candidate_chunks)
     sorted_idx, sorted_scores = rerank_pairs(
         "cross-encoder/ms-marco-MiniLM-L6-v2", sentence_pairs
     )
 
-    # 2.3 Get top k results with metadata
+    # Get top k results with metadata
     top_k_chunks = get_top_k_chunks(candidate_chunks, sorted_idx, k=3)
 
-    # 2.4 Print results
-    print("=" * 50)
+    # Print results
     print(f"\nTop {len(top_k_chunks)} results:\n")
     for i, chunk in enumerate(top_k_chunks):
         print(f"\nRanking: {i + 1}")
@@ -90,7 +96,14 @@ def run_rag_query(
         print(f"Content: {chunk['content']}")
         print("-" * 50)
 
-    # 2.5 Answer the question using an LLM and the top k chunks as context.
+
+
+    ###################################################
+    ########        4. GENERATION STAGE        ########
+    ###################################################
+    print("\n[ ] Generation stage...")
+
+    # Answer the question using an LLM and the top k chunks as context.
     # If retrieval confidence is too low, avoid forcing a hallucinated answer.
     best_rerank_score = sorted_scores[0] if len(sorted_scores) > 0 else -1.0
     rerank_confidence_threshold = 0.2
@@ -114,8 +127,9 @@ def run_rag_query(
     return structured, citation_map, cited_indices
 
 
-def load_pdf(file_path):
+def load_pdf(file_path: str):
     # PyPDFLoader loads one Document object per PDF page
+    print(f"    Loading {Path(file_path).name}...")
     loader = PyPDFLoader(file_path)
     documents = loader.load()
     return documents
@@ -159,9 +173,9 @@ def create_vectorstore_from_chunks(
 
     if chunks_to_add:
         vector_store.add_documents(documents=chunks_to_add, ids=ids_to_add)
-        print(f"Indexed {len(chunks_to_add)} new chunks.")
+        print(f"    Indexed {len(chunks_to_add)} new chunks.")
     else:
-        print("No new chunks to index - use existing vector store. ")
+        print("    No new chunks to index - use existing vector store. ")
 
     return vector_store, document_ids
 
@@ -184,13 +198,14 @@ def deterministic_chunk_id(document):
 
 
 def get_embedding_function(openai_model_name="text-embedding-3-large"):
+    print(f"    Initializing embedding client with {openai_model_name}")
     embeddings = OpenAIEmbeddings(model=openai_model_name)
 
     vector_1 = embeddings.embed_query("first chunk")
     vector_2 = embeddings.embed_query("This is another chunk")
 
     assert len(vector_1) == len(vector_2)
-    print(f"Generated vectors of length {len(vector_1)}")
+    print(f"    Dimensions of the embeddings: {len(vector_1):,}")
 
     return embeddings
 

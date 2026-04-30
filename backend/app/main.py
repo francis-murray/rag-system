@@ -28,7 +28,6 @@ def main():
     print("Hello from rag-system!\n")
 
     load_and_validate_env()
-    print("\n[ ] Retrieval Augmented Generation...")
 
     # 2.1 Get query from user
     query = get_query_from_user()
