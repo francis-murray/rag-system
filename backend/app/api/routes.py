@@ -2,12 +2,14 @@ from contextlib import asynccontextmanager
 
 from fastapi import Depends, FastAPI, Request, status
 from langchain_chroma import Chroma
+from sentence_transformers import CrossEncoder
 
 from backend.app.core.config import load_and_validate_env
 from backend.app.core.logging_config import setup_logging
 from backend.app.schemas import QueryRequest, QueryResponse
 from backend.app.services.rag_service import (
     build_index,
+    build_reranker,
     get_default_pdf_path,
     run_rag_query,
 )
@@ -20,6 +22,7 @@ async def lifespan(app: FastAPI):
     load_and_validate_env()
     setup_logging()
     app.state.vector_store = build_index(get_default_pdf_path())
+    app.state.reranker = build_reranker()
     yield
 
 
@@ -35,6 +38,11 @@ def get_vector_store(request: Request) -> Chroma:
     return request.app.state.vector_store
 
 
+def get_reranker(request: Request) -> CrossEncoder:
+    """Provide the shared cross-encoder reranker loaded once at app startup."""
+    return request.app.state.reranker
+
+
 @app.get("/")
 async def root() -> dict[str, str]:
     """Root endpoint to verify the API is reachable."""
@@ -45,11 +53,13 @@ async def root() -> dict[str, str]:
 async def query(
     body: QueryRequest,
     vector_store: Chroma = Depends(get_vector_store),
+    reranker: CrossEncoder = Depends(get_reranker),
 ) -> QueryResponse:
     """Run a RAG query and return the answer with its supporting chunks."""
     structured, cited_chunks = run_rag_query(
         query=body.query,
         vector_store=vector_store,
+        reranker=reranker,
     )
 
     return QueryResponse(

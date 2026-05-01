@@ -3,6 +3,7 @@ from backend.app.core.logging_config import setup_logging
 from backend.app.schemas import CitedChunk
 from backend.app.services.rag_service import (
     build_index,
+    build_reranker,
     get_default_pdf_path,
     run_rag_query,
 )
@@ -35,8 +36,9 @@ def main():
     load_and_validate_env()
     setup_logging()
 
-    # Build the index once before accepting queries.
+    # Build the index and load the reranker once before accepting queries.
     vector_store = build_index(get_default_pdf_path())
+    reranker = build_reranker()
 
     while True:
         query = get_query_from_user().strip()
@@ -47,7 +49,11 @@ def main():
         if not query:
             continue
 
-        structured, cited_chunks = run_rag_query(query=query, vector_store=vector_store)
+        structured, cited_chunks = run_rag_query(
+            query=query,
+            vector_store=vector_store,
+            reranker=reranker,
+        )
         print("=" * 80)
         print(f"Anwer:\n\n{structured.answer}")
         print_cited_chunks(cited_chunks)

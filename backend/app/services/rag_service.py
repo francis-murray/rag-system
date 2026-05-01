@@ -36,6 +36,21 @@ class AnswerWithCitations(BaseModel):
 # Matches inline citations like "[1]" or "[12]" in the LLM answer.
 CITATION_MARKER_PATTERN = re.compile(r"\[(\d+)\]")
 
+# Single source of truth for the reranker model. Loaded once at startup
+# via build_reranker() and reused across queries.
+CROSS_ENCODER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L6-v2"
+
+
+def build_reranker() -> CrossEncoder:
+    """Load the cross-encoder model once (called at app startup).
+
+    First run downloads weights from the HuggingFace Hub (~80MB) into the
+    user's local cache. Subsequent runs load from disk.
+    """
+    logger.info("Loading cross-encoder model %s...", CROSS_ENCODER_MODEL_NAME)
+    return CrossEncoder(CROSS_ENCODER_MODEL_NAME)
+
+
 def get_default_pdf_path() -> str:
     """Default PDF path used by both the CLI and API (single source of truth)."""
     return str(
@@ -84,6 +99,7 @@ def build_index(file_path: str) -> Chroma:
 def run_rag_query(
     query: str,
     vector_store: Chroma,
+    reranker: CrossEncoder,
 ) -> tuple[AnswerWithCitations, list[CitedChunk]]:
 
     ###################################################
@@ -113,15 +129,9 @@ def run_rag_query(
     ###################################################
 
     # Re-rank using Cross-Encoders for sentence pair scoring
-    cross_encoder_model = "cross-encoder/ms-marco-MiniLM-L6-v2"
-    logger.info(
-        "Re-ranking candidates using cross-encoder model %s...",
-        cross_encoder_model.split("/")[-1],
-    )
+    logger.info("Re-ranking %d candidates with cross-encoder...", len(candidate_chunks))
     sentence_pairs = create_sentence_pairs(query, candidate_chunks)
-    sorted_idx, sorted_scores = rerank_pairs(
-        cross_encoder_model, sentence_pairs
-    )
+    sorted_idx, sorted_scores = rerank_pairs(reranker, sentence_pairs)
 
     # Get top k results with metadata
     top_k_num = 3
@@ -280,9 +290,8 @@ def create_sentence_pairs(query, candidate_chunks):
     return sentence_pairs
 
 
-def rerank_pairs(cross_encoder_model_name, sentence_pairs):
-    cross_encoder_model = CrossEncoder(cross_encoder_model_name)
-    scores = cross_encoder_model.predict(sentence_pairs)
+def rerank_pairs(reranker: CrossEncoder, sentence_pairs):
+    scores = reranker.predict(sentence_pairs)
     logger.debug("Rerank scores: %s", scores)
 
     sorted_idx = np.argsort(scores)[::-1]
