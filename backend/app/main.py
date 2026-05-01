@@ -1,4 +1,5 @@
 from backend.app.core.config import load_and_validate_env
+from backend.app.core.logging_config import setup_logging
 from backend.app.schemas import CitedChunk
 from backend.app.services.rag_service import (
     build_index,
@@ -25,14 +26,14 @@ def print_cited_chunks(cited_chunks: list[CitedChunk]):
     print("\nCited passages:\n")
     for chunk in cited_chunks:
         print(f"[{chunk.citation_index}] {chunk.source} (page {chunk.page + 1})")
-        print(chunk.content)
-        print("-" * 50)
+        print(f"{chunk.content}\n")
 
 
 def main():
     print("Hello from rag-system!\n")
 
     load_and_validate_env()
+    setup_logging()
 
     # Build the index once before accepting queries.
     vector_store = build_index(get_default_pdf_path())
@@ -48,7 +49,7 @@ def main():
 
         structured, cited_chunks = run_rag_query(query=query, vector_store=vector_store)
         print("=" * 80)
-        print(f"Response to the query {query}:\n {structured.answer}")
+        print(f"Anwer:\n\n{structured.answer}")
         print_cited_chunks(cited_chunks)
 
     print("Goodbye! Thanks for using rag-system!")

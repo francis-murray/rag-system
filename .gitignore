@@ -26,3 +26,4 @@ venv/
 # Local project documents
 pdf_documents/
 chroma_langchain_db/
+logs/

@@ -4,6 +4,7 @@ from fastapi import Depends, FastAPI, Request, status
 from langchain_chroma import Chroma
 
 from backend.app.core.config import load_and_validate_env
+from backend.app.core.logging_config import setup_logging
 from backend.app.schemas import QueryRequest, QueryResponse
 from backend.app.services.rag_service import (
     build_index,
@@ -17,6 +18,7 @@ async def lifespan(app: FastAPI):
     # the code before yield will be executed once, before the 
     # application starts receiving requests.
     load_and_validate_env()
+    setup_logging()
     app.state.vector_store = build_index(get_default_pdf_path())
     yield
 

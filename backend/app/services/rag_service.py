@@ -2,6 +2,7 @@
 # "Build a semantic search engine with LangChain" tutorial
 # (https://docs.langchain.com/oss/python/langchain/knowledge-base)
 
+import logging
 import hashlib
 import re
 from pathlib import Path
@@ -16,6 +17,11 @@ from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
 from backend.app.schemas import ChunkWithMetadata, CitedChunk
+
+logger = logging.getLogger(__name__)
+
+# Compact, fixed-point output for NumPy arrays in console output.
+np.set_printoptions(precision=2, suppress=True)
 
 
 class AnswerWithCitations(BaseModel):
@@ -45,17 +51,18 @@ def build_index(file_path: str) -> Chroma:
     ###################################################
     ########      1. INDEXING STAGE            ########
     ###################################################
-    print("[ ] Indexing stage...")
-
+    logger.info("Indexing stage...")
 
     docs = load_pdf(file_path)
-    print(f"    Number of pages in {Path(file_path).name}: {len(docs)}")
+    logger.info("Number of pages in %s: %d", Path(file_path).name, len(docs))
 
     # Split our documents into chunks
     all_splits = split_documents(
         docs, chunk_size=500, chunk_overlap=100, add_start_index=True
     )
-    print(f"    Number of splits in {Path(file_path).name}: {len(all_splits)}")
+    logger.info(
+        "Number of splits in %s: %d", Path(file_path).name, len(all_splits)
+    )
 
     # Get embeddings function
     embeddings = get_embedding_function(openai_model_name="text-embedding-3-large")
@@ -82,51 +89,70 @@ def run_rag_query(
     ###################################################
     ########        2. RETRIEVAL STAGE         ########
     ###################################################
-    print("[ ] Retrieval stage...")
 
     # size of initial set of retrieved chunks
-    k = 10
+    num_candidates = 10
 
+    logger.info("Retrieving %d candidates from vector store...", num_candidates)
     # Vector based semantic search
     candidate_chunks = query_candidate_chunks_from_vectorstore(
-        vector_store=vector_store, num_candidates=k, query=query
+        vector_store=vector_store, num_candidates=num_candidates, query=query
     )
+
+    # Per-chunk details (verbose; only useful when debugging retrieval quality)
+    if logger.isEnabledFor(logging.DEBUG):
+        details = "\n".join(
+            f"chunk id: {chunk.id}\n"
+            f"{chunk.page_content}\n"
+            for chunk in candidate_chunks
+        )
+        logger.debug("Candidate chunks (%d):\n%s", len(candidate_chunks), details)
 
     ###################################################
     ########        3. RE-RANKING STAGE        ########
     ###################################################
-    print("[ ] Re-ranking stage...")
 
     # Re-rank using Cross-Encoders for sentence pair scoring
+    cross_encoder_model = "cross-encoder/ms-marco-MiniLM-L6-v2"
+    logger.info(
+        "Re-ranking candidates using cross-encoder model %s...",
+        cross_encoder_model.split("/")[-1],
+    )
     sentence_pairs = create_sentence_pairs(query, candidate_chunks)
     sorted_idx, sorted_scores = rerank_pairs(
-        "cross-encoder/ms-marco-MiniLM-L6-v2", sentence_pairs
+        cross_encoder_model, sentence_pairs
     )
 
     # Get top k results with metadata
-    top_k_chunks = get_top_k_chunks(candidate_chunks, sorted_idx, k=3)
+    top_k_num = 3
+    logger.info("Selecting top %d chunks to feed to LLM", top_k_num)
+    top_k_chunks = get_top_k_chunks(candidate_chunks, sorted_idx, k=top_k_num)
 
-    # Print results
-    print(f"\nTop {len(top_k_chunks)} results:\n")
-    for i, chunk in enumerate(top_k_chunks):
-        print(f"\nRanking: {i + 1}")
-        print(f"Document ID: {chunk.document_id}")
-        print(f"Source: {chunk.source}")
-        print(f"Page: {chunk.page + 1}")
-        print(f"Start index: {chunk.start_index}")
-        print(f"Content: {chunk.content}")
-        print("-" * 50)
+    # Per-chunk details (verbose; only useful when debugging retrieval quality)
+    if logger.isEnabledFor(logging.DEBUG):
+        details = "\n".join(
+            f"Rank {i} | doc_id={chunk.document_id}\n"
+            f"source={chunk.source} page={chunk.page + 1} "
+            f"start_index={chunk.start_index}\n"
+            f"content=\n{chunk.content}\n"
+            for i, chunk in enumerate(top_k_chunks, start=1)
+        )
+        logger.debug("Top %d chunks:\n%s", len(top_k_chunks), details)
 
     ###################################################
     ########        4. GENERATION STAGE        ########
     ###################################################
-    print("\n[ ] Generation stage...")
+    logger.info("Generation stage...")
 
     # Answer the question using an LLM and the top k chunks as context.
     # If retrieval confidence is too low, avoid forcing a hallucinated answer.
     best_rerank_score = sorted_scores[0] if len(sorted_scores) > 0 else -1.0
     rerank_confidence_threshold = 0.2
     if best_rerank_score < rerank_confidence_threshold:
+        logger.warning(
+            "Skipping generation: best rerank score %.2f below threshold %.2f",
+            best_rerank_score, rerank_confidence_threshold,
+        )
         fallback = AnswerWithCitations(
             answer="I don't know (retrieved context confidence is too low).",
             citations=[],
@@ -134,8 +160,7 @@ def run_rag_query(
         return fallback, []
 
     citation_map, context_text = build_context_for_llm(top_k_chunks)
-    print("=" * 50)
-    print(f"\nContext_text:\n{context_text}\n")
+    logger.debug("Context text passed to LLM:\n%s", context_text)
 
     structured = generate_answer(query, context_text)
 
@@ -150,7 +175,7 @@ def run_rag_query(
 
 def load_pdf(file_path: str):
     # PyPDFLoader loads one Document object per PDF page
-    print(f"    Loading {Path(file_path).name}...")
+    logger.info("Loading %s...", Path(file_path).name)
     loader = PyPDFLoader(file_path)
     documents = loader.load()
 
@@ -199,9 +224,9 @@ def create_vectorstore_from_chunks(
 
     if chunks_to_add:
         vector_store.add_documents(documents=chunks_to_add, ids=ids_to_add)
-        print(f"    Indexed {len(chunks_to_add)} new chunks.")
+        logger.info("Indexed %d new chunks.", len(chunks_to_add))
     else:
-        print("    No new chunks to index - use existing vector store. ")
+        logger.info("No new chunks to index - using existing vector store.")
 
     return vector_store, document_ids
 
@@ -224,14 +249,14 @@ def deterministic_chunk_id(document):
 
 
 def get_embedding_function(openai_model_name="text-embedding-3-large"):
-    print(f"    Initializing embedding client with {openai_model_name}")
+    logger.info("Initializing embedding client with %s", openai_model_name)
     embeddings = OpenAIEmbeddings(model=openai_model_name)
 
     vector_1 = embeddings.embed_query("first chunk")
     vector_2 = embeddings.embed_query("This is another chunk")
 
     assert len(vector_1) == len(vector_2)
-    print(f"    Dimensions of the embeddings: {len(vector_1):,}")
+    logger.debug("Embedding dimension: %d", len(vector_1))
 
     return embeddings
 
@@ -249,16 +274,8 @@ def query_candidate_chunks_from_vectorstore(vector_store, num_candidates, query)
 def create_sentence_pairs(query, candidate_chunks):
     sentence_pairs = []
 
-    print("=" * 50)
-    print(f"\nCandidate chunks ({len(candidate_chunks)}):")
     for candidate_chunk in candidate_chunks:
-        print()
-        print(f"chunk id: {candidate_chunk.id}")
-        print(candidate_chunk.page_content)
-
         sentence_pairs.append([query, candidate_chunk.page_content])
-        print()
-        print("-" * 50)
 
     return sentence_pairs
 
@@ -266,14 +283,12 @@ def create_sentence_pairs(query, candidate_chunks):
 def rerank_pairs(cross_encoder_model_name, sentence_pairs):
     cross_encoder_model = CrossEncoder(cross_encoder_model_name)
     scores = cross_encoder_model.predict(sentence_pairs)
-
-    print(f"\nScores: {scores}")
+    logger.debug("Rerank scores: %s", scores)
 
     sorted_idx = np.argsort(scores)[::-1]
-    print(f"\nSorted indices: {sorted_idx}")
-
     sorted_scores = scores[sorted_idx]
-    print(f"\nSorted scores: {sorted_scores}")
+    logger.debug("Rerank sorted indices: %s", sorted_idx)
+    logger.debug("Rerank sorted scores: %s", sorted_scores)
 
     return sorted_idx, sorted_scores
 
