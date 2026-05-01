@@ -51,33 +51,53 @@ def build_reranker() -> CrossEncoder:
     return CrossEncoder(CROSS_ENCODER_MODEL_NAME)
 
 
-def get_default_pdf_path() -> str:
-    """Default PDF path used by both the CLI and API (single source of truth)."""
-    return str(
-        Path(__file__).resolve().parents[3]
-        / "data"
-        / "pdf_documents"
-        / "GPT-4 Technical Report.pdf"
-    )
+def get_default_pdf_dir() -> Path:
+    """Default directory containing PDFs to index (single source of truth)."""
+    return Path(__file__).resolve().parents[3] / "data" / "pdf_documents"
 
 
-def build_index(file_path: str) -> Chroma:
+def get_default_pdf_paths() -> list[str]:
+    """Return all PDF file paths in the default pdf_documents directory.
+
+    Used by both the CLI and API so they index the same corpus.
+    """
+    pdf_dir = get_default_pdf_dir()
+    if not pdf_dir.is_dir():
+        raise FileNotFoundError(
+            f"PDF directory not found: {pdf_dir}"
+        )
+
+    pdf_paths = sorted(str(p) for p in pdf_dir.glob("*.pdf"))
+    if not pdf_paths:
+        raise FileNotFoundError(
+            f"No PDF files found in {pdf_dir}. "
+            "Add at least one .pdf file before starting the app."
+        )
+    return pdf_paths
+
+
+def build_index(file_paths: list[str]) -> Chroma:
 
     ###################################################
     ########      1. INDEXING STAGE            ########
     ###################################################
-    logger.info("Indexing stage...")
+    logger.info("Indexing stage for %d PDF file(s)...", len(file_paths))
 
-    docs = load_pdf(file_path)
-    logger.info("Number of pages in %s: %d", Path(file_path).name, len(docs))
+    all_splits = []
+    for file_path in file_paths:
+        docs = load_pdf(file_path)
+        logger.info("Number of pages in pdf: %d", len(docs))
 
-    # Split our documents into chunks
-    all_splits = split_documents(
-        docs, chunk_size=500, chunk_overlap=100, add_start_index=True
-    )
-    logger.info(
-        "Number of splits in %s: %d", Path(file_path).name, len(all_splits)
-    )
+        # Split our documents into chunks
+        splits = split_documents(
+            docs, chunk_size=500, chunk_overlap=100, add_start_index=True
+        )
+        logger.info(
+            "Number of splits in pdf %d", len(splits)
+        )
+        all_splits.extend(splits)
+
+    logger.info("Total chunks across all PDFs: %d", len(all_splits))
 
     # Get embeddings function
     embeddings = get_embedding_function(openai_model_name="text-embedding-3-large")
@@ -185,7 +205,7 @@ def run_rag_query(
 
 def load_pdf(file_path: str):
     # PyPDFLoader loads one Document object per PDF page
-    logger.info("Loading %s...", Path(file_path).name)
+    logger.info("Loading %s", Path(file_path).name)
     loader = PyPDFLoader(file_path)
     documents = loader.load()
 

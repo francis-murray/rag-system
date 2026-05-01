@@ -4,7 +4,7 @@ from backend.app.schemas import CitedChunk
 from backend.app.services.rag_service import (
     build_index,
     build_reranker,
-    get_default_pdf_path,
+    get_default_pdf_paths,
     run_rag_query,
 )
 
@@ -37,7 +37,7 @@ def main():
     setup_logging()
 
     # Build the index and load the reranker once before accepting queries.
-    vector_store = build_index(get_default_pdf_path())
+    vector_store = build_index(get_default_pdf_paths())
     reranker = build_reranker()
 
     while True:
@@ -55,7 +55,7 @@ def main():
             reranker=reranker,
         )
         print("=" * 80)
-        print(f"Anwer:\n\n{structured.answer}")
+        print(f"Answer:\n\n{structured.answer}")
         print_cited_chunks(cited_chunks)
 
     print("Goodbye! Thanks for using rag-system!")

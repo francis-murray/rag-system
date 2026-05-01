@@ -10,7 +10,7 @@ from backend.app.schemas import QueryRequest, QueryResponse
 from backend.app.services.rag_service import (
     build_index,
     build_reranker,
-    get_default_pdf_path,
+    get_default_pdf_paths,
     run_rag_query,
 )
 
@@ -21,7 +21,7 @@ async def lifespan(app: FastAPI):
     # application starts receiving requests.
     load_and_validate_env()
     setup_logging()
-    app.state.vector_store = build_index(get_default_pdf_path())
+    app.state.vector_store = build_index(get_default_pdf_paths())
     app.state.reranker = build_reranker()
     yield
 
