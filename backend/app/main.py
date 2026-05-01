@@ -1,6 +1,10 @@
 from backend.app.core.config import load_and_validate_env
 from backend.app.schemas import CitedChunk
-from backend.app.services.rag_service import run_rag_query
+from backend.app.services.rag_service import (
+    build_index,
+    get_default_pdf_path,
+    run_rag_query,
+)
 
 
 def get_query_from_user():
@@ -30,10 +34,12 @@ def main():
 
     load_and_validate_env()
 
-    # 2.1 Get query from user
+    # Build the index once before accepting queries.
+    vector_store = build_index(get_default_pdf_path())
+
     query = get_query_from_user()
 
-    structured, cited_chunks = run_rag_query(query)
+    structured, cited_chunks = run_rag_query(query=query, vector_store=vector_store)
     print("=" * 80)
     print(f"Response to the query {query}:\n {structured.answer}")
     print_cited_chunks(cited_chunks)

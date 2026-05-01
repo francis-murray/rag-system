@@ -30,34 +30,32 @@ class AnswerWithCitations(BaseModel):
 # Matches inline citations like "[1]" or "[12]" in the LLM answer.
 CITATION_MARKER_PATTERN = re.compile(r"\[(\d+)\]")
 
+def get_default_pdf_path() -> str:
+    """Default PDF path used by both the CLI and API (single source of truth)."""
+    return str(
+        Path(__file__).resolve().parents[3]
+        / "data"
+        / "pdf_documents"
+        / "GPT-4 Technical Report.pdf"
+    )
 
-def run_rag_query(
-    query: str,
-) -> tuple[AnswerWithCitations, list[CitedChunk]]:
 
-    # size of initial set of retrieved chunks
-    k = 10
+def build_index(file_path: str) -> Chroma:
 
     ###################################################
     ########      1. INDEXING STAGE            ########
     ###################################################
     print("[ ] Indexing stage...")
 
-    # Load documents
-    file_path = str(
-        Path(__file__).resolve().parents[3]
-        / "data"
-        / "pdf_documents"
-        / "GPT-4 Technical Report.pdf"
-    )
+
     docs = load_pdf(file_path)
-    print(f"    Number of pages in {file_path.split('/')[-1]}: {len(docs)}")
+    print(f"    Number of pages in {Path(file_path).name}: {len(docs)}")
 
     # Split our documents into chunks
     all_splits = split_documents(
         docs, chunk_size=500, chunk_overlap=100, add_start_index=True
     )
-    print(f"    Number of splits in {file_path.split('/')[-1]}: {len(all_splits)}")
+    print(f"    Number of splits in {Path(file_path).name}: {len(all_splits)}")
 
     # Get embeddings function
     embeddings = get_embedding_function(openai_model_name="text-embedding-3-large")
@@ -72,10 +70,22 @@ def run_rag_query(
         chunks=all_splits,
     )
 
+    return vector_store
+
+
+
+def run_rag_query(
+    query: str,
+    vector_store: Chroma,
+) -> tuple[AnswerWithCitations, list[CitedChunk]]:
+
     ###################################################
     ########        2. RETRIEVAL STAGE         ########
     ###################################################
     print("[ ] Retrieval stage...")
+
+    # size of initial set of retrieved chunks
+    k = 10
 
     # Vector based semantic search
     candidate_chunks = query_candidate_chunks_from_vectorstore(
