@@ -17,7 +17,7 @@ from backend.app.services.rag_service import (
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    # the code before yield will be executed once, before the 
+    # the code before yield will be executed once, before the
     # application starts receiving requests.
     load_and_validate_env()
     setup_logging()
@@ -45,8 +45,8 @@ def get_reranker(request: Request) -> CrossEncoder:
 
 @app.get("/")
 async def root() -> dict[str, str]:
-    """Root endpoint to verify the API is reachable."""
-    return {"message": "Hello World"}
+    """Root endpoint returning minimal API metadata."""
+    return {"name": app.title, "docs_url": app.docs_url or "/docs"}
 
 
 @app.get("/health", status_code=status.HTTP_200_OK)
