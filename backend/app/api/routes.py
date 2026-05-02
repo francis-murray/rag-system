@@ -6,7 +6,7 @@ from sentence_transformers import CrossEncoder
 
 from backend.app.core.config import load_and_validate_env
 from backend.app.core.logging_config import setup_logging
-from backend.app.schemas import QueryRequest, QueryResponse
+from backend.app.schemas import HealthResponse, QueryRequest, QueryResponse
 from backend.app.services.rag_service import (
     build_index,
     build_reranker,
@@ -47,6 +47,12 @@ def get_reranker(request: Request) -> CrossEncoder:
 async def root() -> dict[str, str]:
     """Root endpoint to verify the API is reachable."""
     return {"message": "Hello World"}
+
+
+@app.get("/health", status_code=status.HTTP_200_OK)
+async def health() -> HealthResponse:
+    """Health check endpoint for uptime and readiness probes."""
+    return HealthResponse(status="ok")
 
 
 @app.post("/query", status_code=status.HTTP_200_OK)

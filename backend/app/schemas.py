@@ -34,3 +34,9 @@ class QueryResponse(BaseModel):
     cited_chunks: list[CitedChunk] = Field(
         description="Chunks supporting the answer, in citation order."
     )
+
+
+class HealthResponse(BaseModel):
+    """Response body for the /health endpoint."""
+
+    status: str = Field(description="Service health status.")
