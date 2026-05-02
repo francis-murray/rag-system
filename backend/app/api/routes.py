@@ -1,36 +1,11 @@
-from contextlib import asynccontextmanager
-
-from fastapi import Depends, FastAPI, Request, status
+from fastapi import APIRouter, Depends, Request, status
 from langchain_chroma import Chroma
 from sentence_transformers import CrossEncoder
 
-from backend.app.core.config import load_and_validate_env
-from backend.app.core.logging_config import setup_logging
 from backend.app.schemas import HealthResponse, QueryRequest, QueryResponse
-from backend.app.services.rag_service import (
-    build_index,
-    build_reranker,
-    get_default_pdf_paths,
-    run_rag_query,
-)
+from backend.app.services.rag_service import run_rag_query
 
-
-@asynccontextmanager
-async def lifespan(app: FastAPI):
-    # the code before yield will be executed once, before the
-    # application starts receiving requests.
-    load_and_validate_env()
-    setup_logging()
-    app.state.vector_store = build_index(get_default_pdf_paths())
-    app.state.reranker = build_reranker()
-    yield
-
-
-app = FastAPI(
-    title="RAG-System API",
-    description="RAG system",
-    lifespan=lifespan,
-)
+router = APIRouter()
 
 
 def get_vector_store(request: Request) -> Chroma:
@@ -43,19 +18,19 @@ def get_reranker(request: Request) -> CrossEncoder:
     return request.app.state.reranker
 
 
-@app.get("/")
-async def root() -> dict[str, str]:
+@router.get("/")
+async def root(request: Request) -> dict[str, str]:
     """Root endpoint returning minimal API metadata."""
-    return {"name": app.title, "docs_url": app.docs_url or "/docs"}
+    return {"name": request.app.title, "docs_url": request.app.docs_url or "/docs"}
 
 
-@app.get("/health", status_code=status.HTTP_200_OK)
+@router.get("/health", status_code=status.HTTP_200_OK)
 async def health() -> HealthResponse:
     """Health check endpoint for uptime and readiness probes."""
     return HealthResponse(status="ok")
 
 
-@app.post("/query", status_code=status.HTTP_200_OK)
+@router.post("/query", status_code=status.HTTP_200_OK)
 async def query(
     body: QueryRequest,
     vector_store: Chroma = Depends(get_vector_store),
