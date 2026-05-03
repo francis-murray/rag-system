@@ -2,6 +2,7 @@ from backend.app.core.config import load_and_validate_env
 from backend.app.core.logging_config import setup_logging
 from backend.app.schemas import CitedChunk
 from backend.app.services.rag_service import (
+    NoPdfFilesError,
     build_index,
     build_reranker,
     get_default_pdf_paths,
@@ -37,7 +38,12 @@ def main():
     setup_logging()
 
     # Build the index and load the reranker once before accepting queries.
-    vector_store = build_index(get_default_pdf_paths())
+    try:
+        pdf_paths = get_default_pdf_paths()
+    except NoPdfFilesError as err:
+        print(err)
+        raise SystemExit(1) from None
+    vector_store = build_index(pdf_paths)
     reranker = build_reranker()
 
     while True:

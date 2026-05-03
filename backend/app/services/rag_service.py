@@ -41,6 +41,10 @@ CITATION_MARKER_PATTERN = re.compile(r"\[(\d+)\]")
 CROSS_ENCODER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
 
+class NoPdfFilesError(ValueError):
+    """The default PDF directory exists but contains no ``*.pdf`` files."""
+
+
 def build_reranker() -> CrossEncoder:
     """Load the cross-encoder model once (called at app startup).
 
@@ -51,27 +55,45 @@ def build_reranker() -> CrossEncoder:
     return CrossEncoder(CROSS_ENCODER_MODEL_NAME)
 
 
+def get_project_root(marker: str = "pyproject.toml") -> Path:
+    """
+    Return the project root: first ancestor of this file that contains ``marker``.
+    """
+    current = Path(__file__).resolve()
+    for parent in (current.parent, *current.parents):
+        if (parent / marker).is_file():
+            return parent
+    raise FileNotFoundError(
+        f"{marker!r} not found when walking parents from {current}"
+    )
+
+
 def get_default_pdf_dir() -> Path:
     """Default directory containing PDFs to index (single source of truth)."""
-    return Path(__file__).resolve().parents[3] / "data" / "pdf_documents"
+    return get_project_root() / "data" / "pdf_documents"
 
 
 def get_default_pdf_paths() -> list[str]:
     """Return all PDF file paths in the default pdf_documents directory.
 
     Used by both the CLI and API so they index the same corpus.
+
+    Raises:
+        FileNotFoundError: If ``pdf_dir`` does not exist.
+        NoPdfFilesError: If the directory exists but contains no ``*.pdf`` files.
     """
     pdf_dir = get_default_pdf_dir()
     if not pdf_dir.is_dir():
-        raise FileNotFoundError(
-            f"PDF directory not found: {pdf_dir}"
-        )
+        raise FileNotFoundError(f"PDF directory not found: {pdf_dir}")
 
     pdf_paths = sorted(str(p) for p in pdf_dir.glob("*.pdf"))
     if not pdf_paths:
-        raise FileNotFoundError(
-            f"No PDF files found in {pdf_dir}. "
-            "Add at least one .pdf file before starting the app."
+        try:
+            pdf_dir_display = pdf_dir.relative_to(get_project_root())
+        except ValueError:
+            pdf_dir_display = pdf_dir
+        raise NoPdfFilesError(
+            f"No .pdf files in {pdf_dir_display}. Add at least one PDF there, then try again."
         )
     return pdf_paths
 
@@ -106,9 +128,7 @@ def build_index(file_paths: list[str]) -> Chroma:
     vector_store, document_ids = create_vectorstore_from_chunks(
         collection_name="documents_collection",
         embedding_function=embeddings,
-        persist_directory=str(
-            Path(__file__).resolve().parents[3] / "data" / "chroma_langchain_db"
-        ),
+        persist_directory=str(get_project_root() / "data" / "chroma_langchain_db"),
         chunks=all_splits,
     )
 
