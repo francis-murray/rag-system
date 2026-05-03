@@ -13,10 +13,10 @@ dist/
 .venv/
 venv/
 
-# Local environment/secrets
-.env
-.env.*
+# Local environment and secrets (repo-wide)
+.env*
 !.env.example
+!frontend/.env.example
 .python-version
 
 
@@ -63,9 +63,6 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 .pnpm-debug.log*
-
-# env files (can opt-in for committing if needed)
-.env*
 
 # vercel
 .vercel
