@@ -23,7 +23,8 @@ venv/
 .vscode/
 .DS_Store
 
-# Local project documents
-pdf_documents/
+# Local project documents (track empty dir but do not commit documents)
+data/pdf_documents/* 
+!data/pdf_documents/.gitkeep 
 chroma_langchain_db/
 logs/
