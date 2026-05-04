@@ -10,6 +10,8 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Cross-encoder reranking
 - Citation-aware answer generation with supporting source chunks
 - FastAPI endpoints for health checks and RAG queries
+- Next.js frontend with a RAG query interface
+- Next.js API proxy routes for backend `/health` and `/query`
 - Interactive command-line query loop
 - File and console logging
 
@@ -17,6 +19,8 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 
 - Python 3.12 or higher
 - `uv` package manager ([installation guide](https://docs.astral.sh/uv/getting-started/installation/))
+- Node.js 20 or higher (for the frontend)
+- npm (bundled with Node.js)
 - An OpenAI API key
 - At least one `.pdf` file in `data/pdf_documents/`
 
@@ -35,9 +39,17 @@ Install dependencies:
 uv sync
 ```
 
+Install frontend dependencies:
+
+```bash
+npm install --prefix frontend
+```
+
 Add one or more PDFs to `data/pdf_documents/`.
 
 ### Environment
+
+#### Backend environment:
 
 Copy `.env.example` to `.env`:
 
@@ -46,6 +58,16 @@ cp .env.example .env
 ```
 
 Then edit `.env` and replace the placeholders with your API keys and other values. At minimum, set `OPENAI_API_KEY`.
+
+#### Frontend environment:
+
+Copy `frontend/.env.example` to `frontend/.env.local`:
+
+```bash
+cp frontend/.env.example frontend/.env.local
+```
+
+Then edit `frontend/.env.local` as needed.
 
 ## Usage
 
@@ -69,12 +91,31 @@ Open the interactive API docs at:
 http://127.0.0.1:8000/docs
 ```
 
+### Running the Frontend
+
+Start the Next.js frontend in a second terminal:
+
+```bash
+npm --prefix frontend run dev
+```
+
+Open:
+
+```text
+http://127.0.0.1:3000
+```
+
+The frontend calls internal Next.js API routes:
+
+- `GET /api/health` -> proxies to backend `GET /health`
+- `POST /api/query` -> validates payload and proxies to backend `POST /query`
+
 ### Notes
 
 - The first time you run the CLI or API, the app downloads cross-encoder weights (about 80 MB) into your local Hugging Face Hub cache. By default that is `~/.cache/huggingface/hub` on macOS and Linux, and `%USERPROFILE%\.cache\huggingface\hub` on Windows. Set `HF_HUB_CACHE` or `HF_HOME` to use a different location.
 - The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop.
 
-## API Endpoints
+## Backend API Endpoints
 
 ### `GET /`
 
@@ -149,6 +190,16 @@ backend/
     services/rag_service.py                # Indexing, retrieval, reranking, generation
     cli.py                                 # Interactive CLI entry point
     main.py                                # FastAPI app entry point
+frontend/
+  app/
+    api/health/route.ts                    # Next.js health proxy route
+    api/query/route.ts                     # Next.js query proxy route
+    page.tsx                               # RAG query UI
+    layout.tsx                             # App shell and metadata
+    globals.css                            # Global styles
+  lib/
+    config.ts                              # Frontend backend URL config
+    types.ts                               # Shared frontend TypeScript types
 data/
   pdf_documents/                           # Add source PDFs here
   chroma_langchain_db/                     # Generated vector DB (local, at runtime)
