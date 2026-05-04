@@ -1,65 +1,183 @@
-import Image from "next/image";
+"use client";
+
+import { useState } from "react";
+import type { FormEvent } from "react";
+import { QueryResponse } from "@/lib/types";
+
+
+// Normalize known backend error shapes into a user-facing message.
+function getErrorMessage(data: unknown): string {
+  if (typeof data === "object" && data !== null && "detail" in data) {
+    const detail = (data as { detail?: unknown }).detail;
+    if (typeof detail === "string") return detail;
+  }
+  return "Request failed.";
+}
 
 export default function Home() {
+  // `useState` creates values that React remembers between renders.
+  const [input, setInput] = useState("");
+  const [lastQuestion, setLastQuestion] = useState("");
+  // `result` starts as null, then becomes backend data after a successful request.
+  const [result, setResult] = useState<QueryResponse | null>(null);
+  const [error, setError] = useState<string>("");
+  const [isLoading, setIsLoading] = useState(false);
+
+  // Runs when the user submits the form.
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    // Prevent the browser's default full-page form submit.
+    event.preventDefault();
+
+    const trimmedQuestion = input.trim();
+    if (!trimmedQuestion) return;
+
+    // clear textbox immediately after submit starts
+    setInput("");
+
+    // Reset prior response/error before making a new request.
+    setError("");
+    setResult(null);
+    setIsLoading(true);
+    setLastQuestion(trimmedQuestion);
+
+    try {
+      // `handleSubmit` reads the current `input` from state and sends it to `/api/query`.
+      // The Next.js route then proxies the request to the backend service.
+      const response = await fetch("/api/query", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ query: trimmedQuestion }),
+      });
+
+      // Parse response body once and keep the structured object in state.
+      const data = await response.json();
+
+      // Non-2xx responses go to the error box instead of result UI.
+      if (!response.ok) {
+        setError(getErrorMessage(data));
+        return;
+      }
+
+      // Save response data in state so React re-renders the UI with the answer.
+      setResult(data as QueryResponse);
+    } catch {
+      // Network failure, server down, or unexpected runtime issue.
+      setError("Could not reach the server. Please try again.");
+    } finally {
+      setIsLoading(false);
+    }
+  }
+
   return (
-    <div className="flex flex-col flex-1 items-center justify-center bg-zinc-50 font-sans dark:bg-black">
-      <main className="flex flex-1 w-full max-w-3xl flex-col items-center justify-between py-32 px-16 bg-white dark:bg-black sm:items-start">
-        <Image
-          className="dark:invert"
-          src="/next.svg"
-          alt="Next.js logo"
-          width={100}
-          height={20}
-          priority
-        />
-        <div className="flex flex-col items-center gap-6 text-center sm:items-start sm:text-left">
-          <h1 className="max-w-xs text-3xl font-semibold leading-10 tracking-tight text-black dark:text-zinc-50">
-            To get started, edit the page.tsx file.
-          </h1>
-          <p className="max-w-md text-lg leading-8 text-zinc-600 dark:text-zinc-400">
-            Looking for a starting point or more instructions? Head over to{" "}
-            <a
-              href="https://vercel.com/templates?framework=next.js&utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Templates
-            </a>{" "}
-            or the{" "}
-            <a
-              href="https://nextjs.org/learn?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-              className="font-medium text-zinc-950 dark:text-zinc-50"
-            >
-              Learning
-            </a>{" "}
-            center.
-          </p>
-        </div>
-        <div className="flex flex-col gap-4 text-base font-medium sm:flex-row">
-          <a
-            className="flex h-12 w-full items-center justify-center gap-2 rounded-full bg-foreground px-5 text-background transition-colors hover:bg-[#383838] dark:hover:bg-[#ccc] md:w-[158px]"
-            href="https://vercel.com/new?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
+    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6 sm:px-6">
+      {/* Page heading / intro area */}
+      <header className="mb-4 rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4 backdrop-blur">
+        <p className="text-sm text-sky-300">RAG System</p>
+        <h1 className="text-xl font-semibold text-slate-50 sm:text-2xl">
+          Query your PDF knowledge base
+        </h1>
+      </header>
+
+      {/* Main content area where error, result, or empty state is shown */}
+      <section className="flex-1 space-y-4 rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
+        {/* Only render this error box when `error` has a value */}
+        {error ? (
+          <section className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-100">
+            <p>{error}</p>
+          </section>
+        ) : null}
+
+        {lastQuestion ? (
+          <article className="ml-auto max-w-[95%] rounded-2xl border border-sky-500/40 bg-sky-500/20 p-4 shadow-lg">
+            <p className="mb-2 text-xs uppercase tracking-wide text-slate-300">
+              You
+            </p>
+            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-100">
+              {lastQuestion}
+            </p>
+          </article>
+        ) : null}
+
+        {/* If we have a result, render it; otherwise show the empty state */}
+        {result ? (
+          <article className="mr-auto max-w-[95%] rounded-2xl border border-slate-600 bg-slate-800/80 p-4 shadow-lg">
+            <p className="mb-2 text-xs uppercase tracking-wide text-slate-300">
+              Assistant
+            </p>
+            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-100">{result.answer}</p>
+
+            {/* Render citations only if backend returned at least one chunk */}
+            {result.cited_chunks.length > 0 ? (
+              <div className="mt-4 space-y-2">
+                <h2 className="text-xs font-semibold text-slate-300">
+                  Citations
+                </h2>
+                <div className="space-y-2">
+                  {/* `map` turns each citation object into visible JSX */}
+                  {result.cited_chunks.map((chunk) => (
+                    <article
+                      key={`${chunk.document_id}-${chunk.citation_index}`}
+                      className="rounded-lg border border-slate-600/70 bg-slate-900/50 p-3"
+                    >
+                      <p className="text-xs font-medium text-sky-300">
+                        [{chunk.citation_index}] {chunk.source} (page {chunk.page + 1})
+                      </p>
+                      <p className="mt-1 text-xs text-slate-300">
+                        {chunk.content}
+                      </p>
+                    </article>
+                  ))}
+                </div>
+              </div>
+            ) : null}
+          </article>
+        ) : !isLoading && !lastQuestion ? (
+          <div className="rounded-xl border border-dashed border-slate-600 p-6 text-sm text-slate-300">
+            Ask your first question to query the backend `/query` endpoint.
+          </div>
+        ) : null}
+
+        {/* Loading indicator shown while waiting for backend response */}
+        {isLoading ? (
+          <div className="mr-auto max-w-[95%] rounded-2xl border border-slate-600 bg-slate-800/80 p-4">
+            <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+              Assistant
+            </p>
+            <p className="mt-1 text-sm text-slate-200">Thinking...</p>
+          </div>
+        ) : null}
+      </section>
+
+      {/* Input form: this is a "controlled input" because value comes from state */}
+      {/* Typing triggers `setInput`; submit triggers `handleSubmit` with an event. */}
+      <form
+        onSubmit={handleSubmit}
+        autoComplete="off"
+        className="sticky bottom-0 mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/85 p-3 backdrop-blur"
+      >
+        <label htmlFor="question-input" className="sr-only">
+          Ask a question
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            id="question-input"
+            name="question-input"
+            type="text"
+            autoComplete="off"
+            value={input}
+            onChange={(event) => setInput(event.target.value)}
+            placeholder="Ask about your documents..."
+            className="min-h-11 flex-1 rounded-xl border border-slate-600 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30"
+          />
+          <button
+            type="submit"
+            disabled={isLoading || input.trim().length === 0}
+            className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-sky-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
-            <Image
-              className="dark:invert"
-              src="/vercel.svg"
-              alt="Vercel logomark"
-              width={16}
-              height={16}
-            />
-            Deploy Now
-          </a>
-          <a
-            className="flex h-12 w-full items-center justify-center rounded-full border border-solid border-black/[.08] px-5 transition-colors hover:border-transparent hover:bg-black/[.04] dark:border-white/[.145] dark:hover:bg-[#1a1a1a] md:w-[158px]"
-            href="https://nextjs.org/docs?utm_source=create-next-app&utm_medium=appdir-template-tw&utm_campaign=create-next-app"
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            Documentation
-          </a>
+            {isLoading ? "Sending..." : "Send"}
+          </button>
         </div>
-      </main>
-    </div>
+      </form>
+    </main>
   );
 }
