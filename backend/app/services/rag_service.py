@@ -389,13 +389,14 @@ def build_context_for_llm(
 
 
 def generate_answer(
-    query: str, context_text: str, model: str = "gpt-5.5"
+    query: str, context_text: str, model: str = "gpt-5-mini"
 ) -> AnswerWithCitations:
     """Ask the LLM to answer the question using only the provided context."""
     prompt = load_prompt("qa")
     system_msg, user_msg = prompt.render(query=query, context_text=context_text)
 
     client = OpenAI()
+    logger.info("Sending question + context to LLM (model=%s).", model)
     response = client.responses.parse(
         model=model,
         input=[
