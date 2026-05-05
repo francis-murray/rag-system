@@ -218,8 +218,15 @@ def run_rag_query(
     cited_indices = collect_cited_indices(
         structured.answer, structured.citations, citation_map
     )
+    # Rewrite inline markers in answer.
+    reindexed_answer, reindexed_citations, index_mapping = reindex_citations_for_display(
+        structured.answer, cited_indices
+    )
+    structured.answer = reindexed_answer
+    structured.citations = reindexed_citations
 
-    cited_chunks = get_cited_chunks(citation_map, cited_indices)
+    # Rewrite citation metadata/chunk indices to match.
+    cited_chunks = get_cited_chunks(citation_map, cited_indices, index_mapping)
 
     return structured, cited_chunks
 
@@ -423,9 +430,68 @@ def collect_cited_indices(answer, structured_citations, citation_map):
     return ordered
 
 
-def get_cited_chunks(citation_map, cited_indices) -> list[CitedChunk]:
+def reindex_citations_for_display(
+    answer: str, cited_indices: list[int]
+) -> tuple[str, list[int], dict[int, int]]:
+    """Remap cited indices to contiguous ``[1..N]`` in first-appearance order.
+
+    Args:
+        answer: Answer text that may contain inline citation markers, e.g.
+            ``"BERT uses MLM [4] and NSP. [5]"``.
+        cited_indices: Ordered original citation ids to display, e.g. ``[4, 5]``.
+
+    Returns:
+        tuple[str, list[int], dict[int, int]]:
+            - reindexed_answer: Answer with rewritten inline markers, e.g.
+              ``"BERT uses MLM [1] and NSP. [2]"``.
+            - reindexed_citations: Sequential citation ids for structured output,
+              e.g. ``[1, 2]``.
+            - index_mapping: Original id -> displayed id mapping, e.g.
+              ``{4: 1, 5: 2}``.
+
+    Example:
+        ``answer="... [4] ... [5]"`` and ``cited_indices=[4, 5]`` returns:
+        ``("... [1] ... [2]", [1, 2], {4: 1, 5: 2})``.
+    """
+    # Build old -> new mapping.
+    index_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(cited_indices, 1)}
+
+    def _replace_marker(match: re.Match[str]) -> str:
+        """Rewrite one inline citation marker using ``index_mapping``.
+
+        Example:
+            If ``index_mapping`` is ``{4: 1, 5: 2}``, then ``"[4]"`` becomes
+            ``"[1]"`` and ``"[5]"`` becomes ``"[2]"``. Markers without a
+            mapping are returned unchanged.
+        """
+        old_idx = int(match.group(1))
+        new_idx = index_mapping.get(old_idx)
+        if new_idx is None:
+            return match.group(0)
+        return f"[{new_idx}]"
+
+    # Replace each citation marker in `answer` with its renumbered display index.
+    reindexed_answer = CITATION_MARKER_PATTERN.sub(_replace_marker, answer)
+    
+    # Structured citation ids mirror the rewritten inline markers: [1, 2, ..., N].
+    reindexed_citations = list(range(1, len(cited_indices) + 1))
+    
+    return reindexed_answer, reindexed_citations, index_mapping
+
+
+def get_cited_chunks(
+    citation_map,
+    cited_indices,
+    index_mapping: dict[int, int] | None = None,
+) -> list[CitedChunk]:
     """Return the chunks corresponding to the cited indices."""
+    if index_mapping is None:
+        index_mapping = {idx: idx for idx in cited_indices}
+
     return [
-        CitedChunk(citation_index=idx, **citation_map[idx].model_dump())
+        CitedChunk(
+            citation_index=index_mapping[idx],
+            **citation_map[idx].model_dump(),
+        )
         for idx in cited_indices
     ]
