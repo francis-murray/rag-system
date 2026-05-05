@@ -9,6 +9,7 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Embedding-based semantic search
 - Cross-encoder reranking
 - Citation-aware answer generation with supporting source chunks
+- Versioned prompt configuration
 - FastAPI endpoints for health checks and RAG queries
 - Next.js frontend with a RAG query interface
 - Next.js API proxy routes for backend `/health` and `/query`
@@ -184,22 +185,18 @@ curl -X POST http://127.0.0.1:8000/query \
 ```text
 backend/
   app/
-    api/routes.py                          # FastAPI routes
-    core/config.py                         # Environment validation
-    core/logging_config.py                 # Logging setup
-    services/rag_service.py                # Indexing, retrieval, reranking, generation
+    api/                                   # FastAPI routes
+    core/                                  # Environment + logging setup
+    prompts/                               # Versioned prompt configuration
+    services/                              # Indexing, retrieval, reranking, generation
     cli.py                                 # Interactive CLI entry point
     main.py                                # FastAPI app entry point
 frontend/
   app/
-    api/health/route.ts                    # Next.js health proxy route
-    api/query/route.ts                     # Next.js query proxy route
+    api/                                   # Next.js health/query proxy routes
     page.tsx                               # RAG query UI
     layout.tsx                             # App shell and metadata
-    globals.css                            # Global styles
-  lib/
-    config.ts                              # Frontend backend URL config
-    types.ts                               # Shared frontend TypeScript types
+  lib/                                     # Frontend config + shared types
 data/
   pdf_documents/                           # Add source PDFs here
   chroma_langchain_db/                     # Generated vector DB (local, at runtime)

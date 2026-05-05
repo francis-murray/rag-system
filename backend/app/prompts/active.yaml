@@ -1,0 +1,4 @@
+# Active version per prompt name.
+# To roll out a new version, add a new vN.yaml under the prompt's folder
+# and update the entry below. Keep older versions for rollback / history.
+qa: v1

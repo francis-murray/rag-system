@@ -2315,6 +2315,7 @@ dependencies = [
     { name = "langchain-openai" },
     { name = "langchain-text-splitters" },
     { name = "pypdf" },
+    { name = "pyyaml" },
     { name = "sentence-transformers" },
 ]
 
@@ -2326,6 +2327,7 @@ requires-dist = [
     { name = "langchain-openai", specifier = ">=1.2.1" },
     { name = "langchain-text-splitters", specifier = ">=1.1.2" },
     { name = "pypdf", specifier = ">=6.10.2" },
+    { name = "pyyaml", specifier = ">=6.0" },
     { name = "sentence-transformers", specifier = ">=5.4.1" },
 ]
 
