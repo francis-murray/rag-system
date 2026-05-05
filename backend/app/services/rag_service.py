@@ -113,7 +113,7 @@ def build_index(file_paths: list[str]) -> Chroma:
 
         # Split our documents into chunks
         splits = split_documents(
-            docs, chunk_size=500, chunk_overlap=100, add_start_index=True
+            docs, chunk_size=700, chunk_overlap=120, add_start_index=True
         )
         logger.info(
             "Number of splits in pdf %d", len(splits)
@@ -148,7 +148,7 @@ def run_rag_query(
     ###################################################
 
     # size of initial set of retrieved chunks
-    num_candidates = 10
+    num_candidates = 30
 
     logger.info("Retrieving %d candidates from vector store...", num_candidates)
     # Vector based semantic search
@@ -175,7 +175,7 @@ def run_rag_query(
     sorted_idx, sorted_scores = rerank_pairs(reranker, sentence_pairs)
 
     # Get top k results with metadata
-    top_k_num = 3
+    top_k_num = 5
     logger.info("Selecting top %d chunks to feed to LLM", top_k_num)
     top_k_chunks = get_top_k_chunks(candidate_chunks, sorted_idx, k=top_k_num)
 
