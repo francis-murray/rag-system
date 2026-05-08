@@ -34,11 +34,21 @@ git clone <repository-url>
 cd rag-system
 ```
 
+
+> Prefer using Dev Containers?
+>
+> Follow [`.devcontainer/README.md`](./.devcontainer/README.md) instead of the local setup steps below.
+
+
 Install dependencies:
 
 ```bash
 uv sync
 ```
+
+By default, `uv sync` creates a local virtual environment at `.venv`.
+
+In the Dev Container workflow, dependencies are installed into `.venv-docker` inside the container to keep host and container environments separate.
 
 Install frontend dependencies:
 

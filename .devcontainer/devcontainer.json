@@ -1,0 +1,26 @@
+{
+  "name": "rag-system",
+  "build": {
+    "dockerfile": "Dockerfile"
+  },
+  "workspaceFolder": "/rag-system",
+  "postCreateCommand": "uv sync && npm --prefix frontend ci",
+  "mounts": [
+    "source=${localWorkspaceFolder},target=/rag-system,type=bind",
+    "source=rag_uv_cache,target=/root/.cache/uv,type=volume",
+    "source=rag_huggingface_cache,target=/root/.cache/huggingface,type=volume",
+    "source=rag_frontend_node_modules,target=/rag-system/frontend/node_modules,type=volume"
+  ],
+  "customizations": {
+    "vscode": {
+      "settings": {
+        "python.defaultInterpreterPath": "/rag-system/.venv-docker/bin/python"
+      },
+      "extensions": [
+        "ms-python.python",
+        "ms-python.vscode-pylance",
+        "charliermarsh.ruff"
+      ]
+    }
+  }
+}
