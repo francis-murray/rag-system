@@ -1,6 +1,6 @@
 # RAG System
 
-A Python retrieval-augmented generation (RAG) system for answering questions over local PDF documents. The project indexes PDFs into a persistent vector store, retrieves candidate chunks with embeddings, reranks them with a cross-encoder, and generates concise cited answers through an LLM.
+A Python retrieval-augmented generation (RAG) system for answering questions over local PDF documents. The system indexes PDFs into a persistent vector store, retrieves candidate chunks using embeddings, reranks results with a cross-encoder, and generates concise citation-aware answers with an LLM.
 
 ## Features
 
@@ -34,13 +34,11 @@ git clone <repository-url>
 cd rag-system
 ```
 
-
 > Prefer using Dev Containers?
 >
 > Follow [`.devcontainer/README.md`](./.devcontainer/README.md) instead of the local setup steps below.
 
-
-Install dependencies:
+Install backend dependencies:
 
 ```bash
 uv sync
@@ -56,11 +54,9 @@ Install frontend dependencies:
 npm install --prefix frontend
 ```
 
-Add one or more PDFs to `data/pdf_documents/`.
-
 ### Environment
 
-#### Backend environment:
+#### Backend environment
 
 Copy `.env.example` to `.env`:
 
@@ -70,7 +66,7 @@ cp .env.example .env
 
 Then edit `.env` and replace the placeholders with your API keys and other values. At minimum, set `OPENAI_API_KEY`.
 
-#### Frontend environment:
+#### Frontend environment
 
 Copy `frontend/.env.example` to `frontend/.env.local`:
 
@@ -79,6 +75,14 @@ cp frontend/.env.example frontend/.env.local
 ```
 
 Then edit `frontend/.env.local` as needed.
+
+### PDF Documents
+
+Add one or more `.pdf` files to:
+
+```text
+data/pdf_documents/
+```
 
 ## Usage
 
@@ -89,6 +93,8 @@ uv run python -m backend.app.cli
 ```
 
 The CLI builds or reuses the vector index, loads the reranker, then prompts for questions. Type `quit` or `exit` to stop.
+
+---
 
 ### Running the API
 
@@ -101,6 +107,8 @@ Open the interactive API docs at:
 ```text
 http://127.0.0.1:8000/docs
 ```
+
+---
 
 ### Running the Frontend
 
@@ -118,8 +126,10 @@ http://127.0.0.1:3000
 
 The frontend calls internal Next.js API routes:
 
-- `GET /api/health` -> proxies to backend `GET /health`
-- `POST /api/query` -> validates payload and proxies to backend `POST /query`
+- `GET /api/health` → proxies to backend `GET /health`
+- `POST /api/query` → validates payload and proxies to backend `POST /query`
+
+---
 
 ### Notes
 
@@ -127,10 +137,6 @@ The frontend calls internal Next.js API routes:
 - The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop.
 
 ## Backend API Endpoints
-
-### `GET /`
-
-Returns basic API metadata.
 
 ### `GET /health`
 
@@ -141,6 +147,8 @@ Returns service health:
   "status": "ok"
 }
 ```
+
+---
 
 ### `POST /query`
 
