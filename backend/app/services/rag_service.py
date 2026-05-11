@@ -18,7 +18,7 @@ from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
 from backend.app.prompts.registry import load_prompt
-from backend.app.schemas import ChunkWithMetadata, CitedChunk
+from backend.app.schemas import ChunkWithMetadata, CitedChunk, StreamProgressStage
 
 logger = logging.getLogger(__name__)
 
@@ -33,6 +33,9 @@ class AnswerWithCitations(BaseModel):
     citations: list[int] = Field(
         description="1-based context block ids used to support the answer."
     )
+
+
+ProgressCallback = Callable[[StreamProgressStage, str], None]
 
 
 # Matches inline citations like "[1]" or "[12]" in the LLM answer.
@@ -142,8 +145,8 @@ def run_rag_query(
     query: str,
     vector_store: Chroma,
     reranker: CrossEncoder,
-    # Optional callback used by streaming endpoints to push live UI updates.
-    on_status: Callable[[str], None] | None = None,
+    on_progress: ProgressCallback | None = None,
+    on_delta: Callable[[str], None] | None = None,
 ) -> tuple[AnswerWithCitations, list[CitedChunk]]:
 
     ###################################################
@@ -154,8 +157,8 @@ def run_rag_query(
     num_candidates = 30
 
     # Mirror this stage to the client.
-    if on_status is not None:
-        on_status(f"Retrieving candidate chunks from the vector store...")
+    if on_progress is not None:
+        on_progress("retrieval", "Retrieving candidate chunks from the vector store...")
     logger.info("Retrieving %d candidates from the vector store...", num_candidates)
     # Vector-based semantic search.
     candidate_chunks = query_candidate_chunks_from_vectorstore(
@@ -176,16 +179,16 @@ def run_rag_query(
     ###################################################
 
     # Re-rank using Cross-Encoders for sentence pair scoring
-    if on_status is not None:
-        on_status("Re-ranking retrieved chunks with a cross-encoder...")
+    if on_progress is not None:
+        on_progress("rerank", "Re-ranking retrieved chunks with a cross-encoder...")
     logger.info("Re-ranking %d retrieved chunks with a cross-encoder...", len(candidate_chunks))
     sentence_pairs = create_sentence_pairs(query, candidate_chunks)
     sorted_idx, sorted_scores = rerank_pairs(reranker, sentence_pairs)
 
     # Get top k results with metadata
     top_k_num = 5
-    if on_status is not None:
-        on_status(f"Selecting the top {top_k_num} chunks as context...")
+    if on_progress is not None:
+        on_progress("rerank", f"Selecting the top {top_k_num} chunks as context...")
     logger.info("Selecting the top %d chunks as context", top_k_num)
     top_k_chunks = get_top_k_chunks(candidate_chunks, sorted_idx, k=top_k_num)
 
@@ -223,7 +226,12 @@ def run_rag_query(
     citation_map, context_text = build_context_for_llm(top_k_chunks)
     logger.debug("Context text passed to LLM:\n%s", context_text)
 
-    structured = generate_answer(query, context_text, on_status=on_status)
+    structured = generate_answer(
+        query,
+        context_text,
+        on_progress=on_progress,
+        on_delta=on_delta,
+    )
 
     cited_indices = collect_cited_indices(
         structured.answer, structured.citations, citation_map
@@ -402,7 +410,8 @@ def generate_answer(
     query: str,
     context_text: str,
     model: str = "gpt-5-mini",
-    on_status: Callable[[str], None] | None = None,
+    on_progress: ProgressCallback | None = None,
+    on_delta: Callable[[str], None] | None = None,
 ) -> AnswerWithCitations:
     """Ask the LLM to answer the question using only the provided context."""
     prompt = load_prompt("qa")
@@ -410,9 +419,24 @@ def generate_answer(
 
     client = OpenAI()
 
-    if on_status is not None:
-        on_status(f"Generating answer with the LLM...")
-    logger.info("Generating answer with the LLM (model=%s)...", model)
+    if on_progress is not None:
+        on_progress("inference", "Sending question and context to the LLM…")
+    logger.info("Starting LLM stream request (model=%s)...", model)
+
+    if on_delta is not None:
+        answer_text = generate_answer_streaming(
+            client=client,
+            model=model,
+            system_msg=system_msg,
+            user_msg=user_msg,
+            on_delta=on_delta,
+            on_progress=on_progress,
+        )
+        # Streaming mode cannot use `responses.parse`, so collect citations from
+        # inline markers in the final text.
+        citations = [int(match.group(1)) for match in CITATION_MARKER_PATTERN.finditer(answer_text)]
+        return AnswerWithCitations(answer=answer_text, citations=citations)
+
     response = client.responses.parse(
         model=model,
         input=[
@@ -425,6 +449,40 @@ def generate_answer(
     if parsed is None:
         raise RuntimeError("Model returned no structured output.")
     return parsed
+
+
+def generate_answer_streaming(
+    client: OpenAI,
+    model: str,
+    system_msg: str,
+    user_msg: str,
+    on_delta: Callable[[str], None],
+    on_progress: ProgressCallback | None = None,
+) -> str:
+    """Stream answer text deltas from OpenAI and return the full text."""
+    chunks: list[str] = []
+    with client.responses.stream(
+        model=model,
+        input=[
+            {"role": "system", "content": system_msg},
+            {"role": "user", "content": user_msg},
+        ],
+    ) as stream:
+        if on_progress is not None:
+            on_progress("inference", "Generating answer...")
+        for event in stream:
+            if event.type != "response.output_text.delta":
+                continue
+            delta = event.delta
+            if not delta:
+                continue
+            chunks.append(delta)
+            on_delta(delta)
+
+        # Fail fast if the stream ended with an error state.
+        stream.get_final_response()
+
+    return "".join(chunks)
 
 
 def collect_cited_indices(answer, structured_citations, citation_map):

@@ -1,3 +1,5 @@
+from typing import Literal
+
 from pydantic import BaseModel, Field
 
 
@@ -40,3 +42,67 @@ class HealthResponse(BaseModel):
     """Response body for the /health endpoint."""
 
     status: str = Field(description="Service health status.")
+
+
+StreamProgressStage = Literal["retrieval", "rerank", "inference"]
+
+
+class StreamEventBase(BaseModel):
+    """Shared envelope for all V1 stream events."""
+
+    stream_version: Literal[1] = Field(default=1)
+    request_id: str = Field(description="Unique request identifier for this stream.")
+    sequence: int = Field(description="Monotonic event sequence number, starting at 1.")
+    timestamp_ms: int = Field(description="Server-side Unix epoch timestamp in milliseconds.")
+
+
+class StreamStartEvent(StreamEventBase):
+    """First event in the V1 stream lifecycle."""
+
+    type: Literal["start"] = "start"
+    query: str = Field(description="Original user query text.")
+
+
+class StreamProgressEvent(StreamEventBase):
+    """Pipeline milestone event emitted during retrieval, reranking, or model inference."""
+
+    type: Literal["progress"] = "progress"
+    stage: StreamProgressStage = Field(
+        description=(
+            "Pipeline phase: retrieval and rerank select context; inference covers "
+            "the forward pass / streamed answer from the language model (including "
+            "time until streamed tokens begin)."
+        ),
+    )
+    message: str = Field(description="Human-readable progress message.")
+
+
+class StreamDeltaEvent(StreamEventBase):
+    """Incremental answer text emitted while the LLM streams tokens."""
+
+    type: Literal["delta"] = "delta"
+    delta: str = Field(description="Answer text chunk to append on the client.")
+
+
+class StreamCompleteEvent(StreamEventBase):
+    """Terminal success event with the canonical final answer payload."""
+
+    type: Literal["complete"] = "complete"
+    data: QueryResponse = Field(
+        description="Final canonical answer payload including cited chunks."
+    )
+    timings_ms: dict[str, int] = Field(
+        description=(
+            "Timing milestones in milliseconds from stream start: pipeline stages "
+            "(e.g. retrieval, rerank, inference), first_token_ms (time to first answer "
+            "text delta), and total end-to-end elapsed time."
+        ),
+    )
+
+
+class StreamFailedEvent(StreamEventBase):
+    """Terminal failure event with stable error code and display-safe message."""
+
+    type: Literal["failed"] = "failed"
+    code: Literal["internal_error"] = "internal_error"
+    message: str = Field(description="User-safe error message.")

@@ -1,13 +1,25 @@
 import json
 from queue import Empty, Queue
 from threading import Thread
+from time import perf_counter, time
+from uuid import uuid4
 
 from fastapi import APIRouter, Depends, Request, status
 from fastapi.responses import StreamingResponse
 from langchain_chroma import Chroma
 from sentence_transformers import CrossEncoder
 
-from backend.app.schemas import HealthResponse, QueryRequest, QueryResponse
+from backend.app.schemas import (
+    HealthResponse,
+    QueryRequest,
+    QueryResponse,
+    StreamCompleteEvent,
+    StreamDeltaEvent,
+    StreamFailedEvent,
+    StreamProgressEvent,
+    StreamProgressStage,
+    StreamStartEvent,
+)
 from backend.app.services.rag_service import run_rag_query
 
 router = APIRouter()
@@ -60,72 +72,134 @@ async def query_stream(
     vector_store: Chroma = Depends(get_vector_store),
     reranker: CrossEncoder = Depends(get_reranker),
 ) -> StreamingResponse:
-    """Stream live RAG pipeline status updates, then the final result."""
+    """V1 stream contract: start/progress/delta/complete|failed lifecycle events."""
 
     def event_stream():
-        """Yield NDJSON status events during execution, then one terminal event."""
-        # Thread-safe bridge between the RAG worker thread and this HTTP stream.
-        status_queue: Queue[str] = Queue()
-        done_marker = "__DONE__"
+        event_queue: Queue[dict[str, object]] = Queue()
+        done_marker: dict[str, object] = {"_stream_worker_done": True}
 
-        final_payload: dict[str, object] = {}
+        request_id = str(uuid4())
+        sequence = 0
+        final_payload: QueryResponse | None = None
         final_error: Exception | None = None
+        timings_ms: dict[str, int] = {}
+        started_at = perf_counter()
 
-        def _on_status(message: str) -> None:
-            """Receive stage updates from RAG and enqueue them for streaming."""
-            status_queue.put(message)
+        def _next_sequence() -> int:
+            nonlocal sequence
+            sequence += 1
+            return sequence
+
+        def _timestamp_ms() -> int:
+            return int(time() * 1000)
+
+        def _queue_event(payload: dict[str, object]) -> None:
+            event_queue.put(payload)
+
+        def _emit_progress(stage: StreamProgressStage, message: str) -> None:
+            # Track first progress timestamp per stage for lightweight observability.
+            if stage not in timings_ms:
+                timings_ms[stage] = int((perf_counter() - started_at) * 1000)
+            _queue_event(
+                StreamProgressEvent(
+                    request_id=request_id,
+                    sequence=_next_sequence(),
+                    timestamp_ms=_timestamp_ms(),
+                    stage=stage,
+                    message=message,
+                ).model_dump()
+            )
+
+        def _emit_delta(delta: str) -> None:
+            if not delta:
+                return
+            # Time to first token: ms from stream start until first answer text chunk.
+            if "first_token_ms" not in timings_ms:
+                timings_ms["first_token_ms"] = int((perf_counter() - started_at) * 1000)
+            _queue_event(
+                StreamDeltaEvent(
+                    request_id=request_id,
+                    sequence=_next_sequence(),
+                    timestamp_ms=_timestamp_ms(),
+                    delta=delta,
+                ).model_dump()
+            )
+
+        _queue_event(
+            StreamStartEvent(
+                request_id=request_id,
+                sequence=_next_sequence(),
+                timestamp_ms=_timestamp_ms(),
+                query=body.query,
+            ).model_dump()
+        )
 
         def _worker() -> None:
-            """Run RAG in a background thread and store final result or error."""
-
-            nonlocal final_payload, final_error
+            nonlocal final_payload, final_error, timings_ms
             try:
                 structured, cited_chunks = run_rag_query(
                     query=body.query,
                     vector_store=vector_store,
                     reranker=reranker,
-                    on_status=_on_status,
+                    on_progress=_emit_progress,
+                    on_delta=_emit_delta,
                 )
-                final_payload = {
-                    "answer": structured.answer,
-                    "cited_chunks": [chunk.model_dump() for chunk in cited_chunks],
-                }
+                final_payload = QueryResponse(
+                    answer=structured.answer,
+                    cited_chunks=cited_chunks,
+                )
+                timings_ms["total"] = int((perf_counter() - started_at) * 1000)
             except Exception as exc:  # pragma: no cover
                 final_error = exc
             finally:
-                status_queue.put(done_marker)
+                event_queue.put(done_marker)
 
-        # Start worker thread and stream queue messages as they arrive.
         worker = Thread(target=_worker, daemon=True)
         worker.start()
 
-        # Streaming loop: waits for status messages from `status_queue`,
-        # immediately `yield`s each one as an NDJSON line to the client, and exits when
-        # the worker signals completion (`done_marker`) or has stopped with no queued messages.
         while True:
             try:
-                # Short timeout lets us check both queue and worker liveness.
-                message = status_queue.get(timeout=0.25)
+                item = event_queue.get(timeout=0.25)
             except Empty:
                 if not worker.is_alive():
                     break
                 continue
 
-            if message == done_marker:
+            if item is done_marker:
                 break
 
-            yield json.dumps({"type": "status", "message": message}) + "\n"
+            yield json.dumps(item) + "\n"
 
         if final_error is not None:
             yield json.dumps(
-                {
-                    "type": "error",
-                    "message": "Could not complete the request.",
-                }
+                StreamFailedEvent(
+                    request_id=request_id,
+                    sequence=_next_sequence(),
+                    timestamp_ms=_timestamp_ms(),
+                    message="Could not complete the request.",
+                ).model_dump()
             ) + "\n"
             return
 
-        # Send one final event containing answer + citations.
-        yield json.dumps({"type": "result", "data": final_payload}) + "\n"
+        if final_payload is None:
+            yield json.dumps(
+                StreamFailedEvent(
+                    request_id=request_id,
+                    sequence=_next_sequence(),
+                    timestamp_ms=_timestamp_ms(),
+                    message="The request completed without a final payload.",
+                ).model_dump()
+            ) + "\n"
+            return
+
+        yield json.dumps(
+            StreamCompleteEvent(
+                request_id=request_id,
+                sequence=_next_sequence(),
+                timestamp_ms=_timestamp_ms(),
+                data=final_payload,
+                timings_ms=timings_ms,
+            ).model_dump()
+        ) + "\n"
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")

@@ -203,32 +203,97 @@ Request:
 }
 ```
 
-Response:
+Response (V1 NDJSON: one JSON object per line, `stream_version: 1`):
 
-- Multiple `status` events while retrieval/reranking/generation are running, for example:
+Every event shares an envelope: `stream_version`, `request_id`, `sequence` (monotonic), `timestamp_ms`, and `type`.
 
-  ```json
-  {"type":"status","message":"Retrieving candidate chunks from the vector store..."}
-  ```
+The JSON below is **pretty-printed** so the fields are easy to scan. On the wire, each event is **one line of compact JSON** (no indentation or extra newlines inside the object), then a newline before the next event—typical NDJSON style.
 
-  ```json
-  {"type":"status","message":"Re-ranking retrieved chunks with a cross-encoder..."}
-  ```
+- **`start`** — first line; echoes the query text.
 
   ```json
-  {"type":"status","message":"Selecting the top 5 chunks as context..."}
+  {
+    "type": "start",
+    "stream_version": 1,
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "sequence": 1,
+    "timestamp_ms": 1715000000000,
+    "query": "What is this document about?"
+  }
   ```
-- One terminal event (either `result` or `error`)
-  - `result` event (final answer + cited chunks) if the request succeeds, for example:
 
-    ```json
-    {"type":"result","data":{"answer":"A concise answer with inline citation markers like [1].","cited_chunks":[{"citation_index":1,"document_id":"chunk-id","source":"document.pdf","page":0,"start_index":123,"content":"Supporting passage text..."}]}}
-    ```
-  - `error` event if the request fails, for example:
+- **`progress`** — pipeline milestones while work runs. `stage` is one of `retrieval`, `rerank`, or `inference` (model call / streamed answer).
 
-    ```json
-    {"type":"error","message":"Could not complete the request."}
-    ```
+  ```json
+  {
+    "type": "progress",
+    "stream_version": 1,
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "sequence": 2,
+    "timestamp_ms": 1715000000100,
+    "stage": "retrieval",
+    "message": "Retrieving candidate chunks from the vector store..."
+  }
+  ```
+
+- **`delta`** — zero or more lines; each appends a chunk of the streamed answer text.
+
+  ```json
+  {
+    "type": "delta",
+    "stream_version": 1,
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "sequence": 8,
+    "timestamp_ms": 1715000001200,
+    "delta": "A concise answer"
+  }
+  ```
+
+- **`complete`** — final success line: canonical `data` (same shape as `POST /query`) plus `timings_ms` (e.g. first occurrence of each `stage`, `first_token_ms`, `total`).
+
+  ```json
+  {
+    "type": "complete",
+    "stream_version": 1,
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "sequence": 42,
+    "timestamp_ms": 1715000005000,
+    "data": {
+      "answer": "A concise answer with inline citation markers like [1].",
+      "cited_chunks": [
+        {
+          "citation_index": 1,
+          "document_id": "chunk-id",
+          "source": "document.pdf",
+          "page": 0,
+          "start_index": 123,
+          "content": "Supporting passage text..."
+        }
+      ]
+    },
+    "timings_ms": {
+      "retrieval": 50,
+      "rerank": 120,
+      "inference": 200,
+      "first_token_ms": 350,
+      "total": 900
+    }
+  }
+  ```
+
+- **`failed`** — terminal error line with a stable `code` and user-safe `message`.
+
+  ```json
+  {
+    "type": "failed",
+    "stream_version": 1,
+    "request_id": "550e8400-e29b-41d4-a716-446655440000",
+    "sequence": 10,
+    "timestamp_ms": 1715000002000,
+    "code": "internal_error",
+    "message": "Could not complete the request."
+  }
+  ```
 
 Example (backend endpoint):
 
