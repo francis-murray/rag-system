@@ -12,7 +12,7 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Versioned prompt configuration
 - FastAPI endpoints for health checks and RAG queries
 - Next.js frontend with a RAG query interface
-- Next.js API proxy routes for backend `/health` and `/query`
+- Next.js API proxy routes for backend `/health`, `/query`, and `/query/stream`
 - Interactive command-line query loop
 - File and console logging
 
@@ -21,7 +21,7 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Python 3.12 or higher
 - `uv` package manager ([installation guide](https://docs.astral.sh/uv/getting-started/installation/))
 - Node.js 20 or higher (for the frontend)
-- npm (bundled with Node.js)
+- `npm` (bundled with Node.js)
 - An OpenAI API key
 - At least one `.pdf` file in `data/pdf_documents/`
 
@@ -46,7 +46,7 @@ uv sync
 
 By default, `uv sync` creates a local virtual environment at `.venv`.
 
-In the Dev Container workflow, dependencies are installed into `.venv-docker` inside the container to keep host and container environments separate.
+_In the Dev Container workflow, dependencies are installed into `.venv-docker` inside the container to keep host and container environments separate._
 
 Install frontend dependencies:
 
@@ -128,6 +128,7 @@ The frontend calls internal Next.js API routes:
 
 - `GET /api/health` → proxies to backend `GET /health`
 - `POST /api/query` → validates payload and proxies to backend `POST /query`
+- `POST /api/query/stream` → validates payload and proxies to backend `POST /query/stream` (NDJSON stream)
 
 ---
 
@@ -188,6 +189,63 @@ curl -X POST http://127.0.0.1:8000/query \
   -d '{"query":"What is this document about?"}'
 ```
 
+---
+
+### `POST /query/stream`
+
+Runs the same RAG query as `POST /query`, but streams newline-delimited JSON (`application/x-ndjson`) events.
+
+Request:
+
+```json
+{
+  "query": "What is this document about?"
+}
+```
+
+Response:
+
+- Multiple `status` events while retrieval/reranking/generation are running, for example:
+
+  ```json
+  {"type":"status","message":"Retrieving candidate chunks from the vector store..."}
+  ```
+
+  ```json
+  {"type":"status","message":"Re-ranking retrieved chunks with a cross-encoder..."}
+  ```
+
+  ```json
+  {"type":"status","message":"Selecting the top 5 chunks as context..."}
+  ```
+- One terminal event (either `result` or `error`)
+  - `result` event (final answer + cited chunks) if the request succeeds, for example:
+
+    ```json
+    {"type":"result","data":{"answer":"A concise answer with inline citation markers like [1].","cited_chunks":[{"citation_index":1,"document_id":"chunk-id","source":"document.pdf","page":0,"start_index":123,"content":"Supporting passage text..."}]}}
+    ```
+  - `error` event if the request fails, for example:
+
+    ```json
+    {"type":"error","message":"Could not complete the request."}
+    ```
+
+Example (backend endpoint):
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/query/stream \
+  -H "Content-Type: application/json" \
+  -d '{"query":"What is this document about?"}'
+```
+
+Example (Next.js proxy endpoint):
+
+```bash
+curl -N -X POST http://127.0.0.1:3000/api/query/stream \
+  -H "Content-Type: application/json" \
+  -d '{"query":"What is this document about?"}'
+```
+
 ## How It Works
 
 1. PDFs are loaded from `data/pdf_documents/`.
@@ -211,7 +269,7 @@ backend/
     main.py                                # FastAPI app entry point
 frontend/
   app/
-    api/                                   # Next.js health/query proxy routes
+    api/                                   # Next.js health/query/query-stream proxy routes
     page.tsx                               # RAG query UI
     layout.tsx                             # App shell and metadata
   lib/                                     # Frontend config + shared types

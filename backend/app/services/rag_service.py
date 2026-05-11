@@ -6,6 +6,7 @@ import logging
 import hashlib
 import re
 from pathlib import Path
+from typing import Callable
 
 import numpy as np
 from langchain_chroma import Chroma
@@ -141,17 +142,22 @@ def run_rag_query(
     query: str,
     vector_store: Chroma,
     reranker: CrossEncoder,
+    # Optional callback used by streaming endpoints to push live UI updates.
+    on_status: Callable[[str], None] | None = None,
 ) -> tuple[AnswerWithCitations, list[CitedChunk]]:
 
     ###################################################
     ########        2. RETRIEVAL STAGE         ########
     ###################################################
 
-    # size of initial set of retrieved chunks
+    # Size of initial set of retrieved chunks.
     num_candidates = 30
 
-    logger.info("Retrieving %d candidates from vector store...", num_candidates)
-    # Vector based semantic search
+    # Mirror this stage to the client.
+    if on_status is not None:
+        on_status(f"Retrieving candidate chunks from the vector store...")
+    logger.info("Retrieving %d candidates from the vector store...", num_candidates)
+    # Vector-based semantic search.
     candidate_chunks = query_candidate_chunks_from_vectorstore(
         vector_store=vector_store, num_candidates=num_candidates, query=query
     )
@@ -170,13 +176,17 @@ def run_rag_query(
     ###################################################
 
     # Re-rank using Cross-Encoders for sentence pair scoring
-    logger.info("Re-ranking %d candidates with cross-encoder...", len(candidate_chunks))
+    if on_status is not None:
+        on_status("Re-ranking retrieved chunks with a cross-encoder...")
+    logger.info("Re-ranking %d retrieved chunks with a cross-encoder...", len(candidate_chunks))
     sentence_pairs = create_sentence_pairs(query, candidate_chunks)
     sorted_idx, sorted_scores = rerank_pairs(reranker, sentence_pairs)
 
     # Get top k results with metadata
     top_k_num = 5
-    logger.info("Selecting top %d chunks to feed to LLM", top_k_num)
+    if on_status is not None:
+        on_status(f"Selecting the top {top_k_num} chunks as context...")
+    logger.info("Selecting the top %d chunks as context", top_k_num)
     top_k_chunks = get_top_k_chunks(candidate_chunks, sorted_idx, k=top_k_num)
 
     # Per-chunk details (verbose; only useful when debugging retrieval quality)
@@ -213,7 +223,7 @@ def run_rag_query(
     citation_map, context_text = build_context_for_llm(top_k_chunks)
     logger.debug("Context text passed to LLM:\n%s", context_text)
 
-    structured = generate_answer(query, context_text)
+    structured = generate_answer(query, context_text, on_status=on_status)
 
     cited_indices = collect_cited_indices(
         structured.answer, structured.citations, citation_map
@@ -389,14 +399,20 @@ def build_context_for_llm(
 
 
 def generate_answer(
-    query: str, context_text: str, model: str = "gpt-5-mini"
+    query: str,
+    context_text: str,
+    model: str = "gpt-5-mini",
+    on_status: Callable[[str], None] | None = None,
 ) -> AnswerWithCitations:
     """Ask the LLM to answer the question using only the provided context."""
     prompt = load_prompt("qa")
     system_msg, user_msg = prompt.render(query=query, context_text=context_text)
 
     client = OpenAI()
-    logger.info("Sending question + context to LLM (model=%s).", model)
+
+    if on_status is not None:
+        on_status(f"Generating answer with the LLM...")
+    logger.info("Generating answer with the LLM (model=%s)...", model)
     response = client.responses.parse(
         model=model,
         input=[

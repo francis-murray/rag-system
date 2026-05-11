@@ -4,6 +4,13 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { QueryResponse } from "@/lib/types";
 
+const INITIAL_LOADING_MESSAGE = "Starting retrieval pipeline...";
+
+// Stream event contract produced by backend `/query/stream`.
+type StreamStatusEvent = { type: "status"; message: string };
+type StreamResultEvent = { type: "result"; data: QueryResponse };
+type StreamErrorEvent = { type: "error"; message: string };
+type StreamEvent = StreamStatusEvent | StreamResultEvent | StreamErrorEvent;
 
 // Normalize known backend error shapes into a user-facing message.
 function getErrorMessage(data: unknown): string {
@@ -22,6 +29,9 @@ export default function Home() {
   const [result, setResult] = useState<QueryResponse | null>(null);
   const [error, setError] = useState<string>("");
   const [isLoading, setIsLoading] = useState(false);
+  const [loadingMessages, setLoadingMessages] = useState<string[]>([
+    INITIAL_LOADING_MESSAGE,
+  ]);
 
   // Runs when the user submits the form.
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -31,35 +41,89 @@ export default function Home() {
     const trimmedQuestion = input.trim();
     if (!trimmedQuestion) return;
 
-    // clear textbox immediately after submit starts
+    // Clear textbox immediately after submit starts.
     setInput("");
 
     // Reset prior response/error before making a new request.
     setError("");
     setResult(null);
+    setLoadingMessages([INITIAL_LOADING_MESSAGE]);
     setIsLoading(true);
     setLastQuestion(trimmedQuestion);
 
     try {
-      // `handleSubmit` reads the current `input` from state and sends it to `/api/query`.
-      // The Next.js route then proxies the request to the backend service.
-      const response = await fetch("/api/query", {
+      // Stream live progress events, then parse the final result event.
+      const response = await fetch("/api/query/stream", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: trimmedQuestion }),
       });
 
-      // Parse response body once and keep the structured object in state.
-      const data = await response.json();
-
       // Non-2xx responses go to the error box instead of result UI.
       if (!response.ok) {
+        const data = await response.json();
         setError(getErrorMessage(data));
         return;
       }
 
-      // Save response data in state so React re-renders the UI with the answer.
-      setResult(data as QueryResponse);
+      if (!response.body) {
+        setError("No response stream was returned.");
+        return;
+      }
+
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      // Carries partial text between chunks when a JSON line is split mid-chunk.
+      let buffer = "";
+
+      // Read chunks incrementally; each chunk may contain 0..N newline-delimited events.
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) {
+          // Flush any remaining decoded bytes after stream completion.
+          buffer += decoder.decode();
+          break;
+        }
+
+        // Decode bytes into text, append to buffer, then split by NDJSON newlines.
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        // Keep only the last (possibly incomplete) line for the next iteration.
+        buffer = lines.pop() ?? "";
+
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const event = JSON.parse(line) as StreamEvent;
+
+          if (event.type === "status") {
+            // Append statuses so users can see the full thought pipeline history.
+            setLoadingMessages((current) => {
+              // Guard against duplicate consecutive events.
+              if (current[current.length - 1] === event.message) return current;
+              return [...current, event.message];
+            });
+          } else if (event.type === "result") {
+            setResult(event.data);
+          } else if (event.type === "error") {
+            setError(event.message);
+          }
+        }
+      }
+
+      // Parse one trailing event if stream ended without a final newline.
+      if (buffer.trim()) {
+        const event = JSON.parse(buffer) as StreamEvent;
+        if (event.type === "status") {
+          setLoadingMessages((current) => {
+            if (current[current.length - 1] === event.message) return current;
+            return [...current, event.message];
+          });
+        } else if (event.type === "result") {
+          setResult(event.data);
+        } else if (event.type === "error") {
+          setError(event.message);
+        }
+      }
     } catch {
       // Network failure, server down, or unexpected runtime issue.
       setError("Could not reach the server. Please try again.");
@@ -143,7 +207,11 @@ export default function Home() {
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">
               Assistant
             </p>
-            <p className="mt-1 text-sm text-slate-200">Thinking...</p>
+            <div className="mt-1 space-y-1 text-sm text-slate-400">
+              {loadingMessages.map((message, idx) => (
+                <p key={`${message}-${idx}`}>{message}</p>
+              ))}
+            </div>
           </div>
         ) : null}
       </section>
