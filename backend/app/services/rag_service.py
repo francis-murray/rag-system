@@ -17,6 +17,7 @@ from openai import OpenAI
 from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
+from backend.app.core.paths import get_project_root
 from backend.app.prompts.registry import load_prompt
 from backend.app.schemas import ChunkWithMetadata, CitedChunk, StreamProgressStage
 
@@ -58,19 +59,6 @@ def build_reranker() -> CrossEncoder:
     """
     logger.info("Loading cross-encoder model %s...", CROSS_ENCODER_MODEL_NAME)
     return CrossEncoder(CROSS_ENCODER_MODEL_NAME)
-
-
-def get_project_root(marker: str = "pyproject.toml") -> Path:
-    """
-    Return the project root: first ancestor of this file that contains ``marker``.
-    """
-    current = Path(__file__).resolve()
-    for parent in (current.parent, *current.parents):
-        if (parent / marker).is_file():
-            return parent
-    raise FileNotFoundError(
-        f"{marker!r} not found when walking parents from {current}"
-    )
 
 
 def get_default_pdf_dir() -> Path:
