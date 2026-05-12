@@ -20,5 +20,8 @@ ENV PATH="/root/.local/bin:$PATH"
 ENV UV_LINK_MODE=copy
 ENV UV_PROJECT_ENVIRONMENT=.venv-docker
 
+# Install Ruff as a standalone command-line tool on PATH (not the project venv)
+RUN uv tool install ruff
+
 # Set default working directory
 WORKDIR /rag-system
