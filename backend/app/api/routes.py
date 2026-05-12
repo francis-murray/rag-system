@@ -4,6 +4,7 @@ from queue import Empty, Queue
 from threading import Thread
 from time import perf_counter, time
 from uuid import uuid4
+from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
@@ -22,7 +23,7 @@ from backend.app.schemas import (
     StreamProgressStage,
     StreamStartEvent,
 )
-from backend.app.services.rag_service import run_rag_query
+from backend.app.services.rag_service import add_documents_to_vectorstore, run_rag_query
 
 router = APIRouter()
 
@@ -44,7 +45,7 @@ async def root(request: Request) -> dict[str, str]:
 
 
 @router.post("/upload")
-async def upload(file: UploadFile = File(...)) -> dict[str, str]:
+async def upload(request: Request, file: UploadFile = File(...)) -> dict[str, str]:
     """Accept a multipart/form-data file, save it to `data/pdf_documents`, and return file metadata."""
 
     UPLOAD_DIR = get_project_root() / "data" / "pdf_documents"
@@ -56,13 +57,38 @@ async def upload(file: UploadFile = File(...)) -> dict[str, str]:
             detail="Uploaded file must include a filename.",
         )
 
-    save_path = UPLOAD_DIR / filename
+    # Use only the final path segment so crafted names like "../../../tmp/x.pdf"
+    # cannot escape UPLOAD_DIR (path traversal). Parent directories in the string
+    # are discarded; the file is always written directly under UPLOAD_DIR.
+    safe_name = Path(filename).name
+
+    if not safe_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid filename; expected a non-empty base name.",
+        )
+
+    if not safe_name.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file must be a PDF.",
+        )
+
+    save_path = UPLOAD_DIR / safe_name
 
     with open(save_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
+    app = request.app  # FastAPI instance
+
+    # TODO: offload add_documents_to_vectorstore to a thread pool; save+index is CPU/IO heavy.
+    _, _ = add_documents_to_vectorstore(
+        vector_store=app.state.vector_store,
+        file_paths=[str(save_path)],
+    )
+
     return {
-        "filename": filename,
+        "filename": safe_name,
         "save_path": str(save_path),
     }
 

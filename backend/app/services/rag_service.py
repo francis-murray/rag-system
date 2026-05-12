@@ -2,8 +2,8 @@
 # "Build a semantic search engine with LangChain" tutorial
 # (https://docs.langchain.com/oss/python/langchain/knowledge-base)
 
-import logging
 import hashlib
+import logging
 import re
 from pathlib import Path
 from typing import Callable
@@ -98,35 +98,23 @@ def build_index(file_paths: list[str]) -> Chroma:
     ###################################################
     logger.info("Indexing stage for %d PDF file(s)...", len(file_paths))
 
-    all_splits = []
-    for file_path in file_paths:
-        docs = load_pdf(file_path)
-        logger.info("Number of pages in pdf: %d", len(docs))
-
-        # Split our documents into chunks
-        splits = split_documents(
-            docs, chunk_size=700, chunk_overlap=120, add_start_index=True
-        )
-        logger.info(
-            "Number of splits in pdf %d", len(splits)
-        )
-        all_splits.extend(splits)
-
-    logger.info("Total chunks across all PDFs: %d", len(all_splits))
-
     # Get embeddings function
     embeddings = get_embedding_function(openai_model_name="text-embedding-3-large")
 
-    # Create Vector Store
-    vector_store, document_ids = create_vectorstore_from_chunks(
+    # create or load existing vector store
+    vector_store = create_or_load_vectorstore(
         collection_name="documents_collection",
         embedding_function=embeddings,
         persist_directory=str(get_project_root() / "data" / "chroma_langchain_db"),
-        chunks=all_splits,
+    )
+
+    # add documents to vector store
+    vector_store, _ = add_documents_to_vectorstore(
+        vector_store=vector_store,
+        file_paths=file_paths,
     )
 
     return vector_store
-
 
 
 def run_rag_query(
@@ -156,8 +144,7 @@ def run_rag_query(
     # Per-chunk details (verbose; only useful when debugging retrieval quality)
     if logger.isEnabledFor(logging.DEBUG):
         details = "\n".join(
-            f"chunk id: {chunk.id}\n"
-            f"{chunk.page_content}\n"
+            f"chunk id: {chunk.id}\n{chunk.page_content}\n"
             for chunk in candidate_chunks
         )
         logger.debug("Candidate chunks (%d):\n%s", len(candidate_chunks), details)
@@ -169,7 +156,9 @@ def run_rag_query(
     # Re-rank using Cross-Encoders for sentence pair scoring
     if on_progress is not None:
         on_progress("rerank", "Re-ranking retrieved chunks with a cross-encoder...")
-    logger.info("Re-ranking %d retrieved chunks with a cross-encoder...", len(candidate_chunks))
+    logger.info(
+        "Re-ranking %d retrieved chunks with a cross-encoder...", len(candidate_chunks)
+    )
     sentence_pairs = create_sentence_pairs(query, candidate_chunks)
     sorted_idx, sorted_scores = rerank_pairs(reranker, sentence_pairs)
 
@@ -203,7 +192,8 @@ def run_rag_query(
     if best_rerank_score < rerank_confidence_threshold:
         logger.warning(
             "Skipping generation: best rerank score %.2f below threshold %.2f",
-            best_rerank_score, rerank_confidence_threshold,
+            best_rerank_score,
+            rerank_confidence_threshold,
         )
         fallback = AnswerWithCitations(
             answer="I don't know (retrieved context confidence is too low).",
@@ -225,8 +215,8 @@ def run_rag_query(
         structured.answer, structured.citations, citation_map
     )
     # Rewrite inline markers in answer.
-    reindexed_answer, reindexed_citations, index_mapping = reindex_citations_for_display(
-        structured.answer, cited_indices
+    reindexed_answer, reindexed_citations, index_mapping = (
+        reindex_citations_for_display(structured.answer, cited_indices)
     )
     structured.answer = reindexed_answer
     structured.citations = reindexed_citations
@@ -261,15 +251,38 @@ def split_documents(documents, chunk_size, chunk_overlap, add_start_index):
     return all_splits
 
 
-def create_vectorstore_from_chunks(
-    collection_name, embedding_function, persist_directory, chunks
-):
+def create_or_load_vectorstore(collection_name, embedding_function, persist_directory):
     # Instantiate vector store (loads existing persisted collection if present).
     vector_store = Chroma(
         collection_name=collection_name,
         embedding_function=embedding_function,
         persist_directory=persist_directory,
     )
+    return vector_store
+
+
+def split_pdfs_into_chunks(file_paths):
+    all_chunks = []
+    for file_path in file_paths:
+        docs = load_pdf(file_path)
+        logger.info("Number of pages in pdf: %d", len(docs))
+
+        # Split our documents into chunks (keeps the metadata into each chunk)
+        splits = split_documents(
+            docs, chunk_size=700, chunk_overlap=120, add_start_index=True
+        )
+        logger.info("Number of splits in pdf %d", len(splits))
+        all_chunks.extend(splits)
+
+    logger.info("Total chunks across all PDFs: %d", len(all_chunks))
+
+    return all_chunks
+
+
+def add_documents_to_vectorstore(vector_store, file_paths):
+
+    # Split documents into chunks (keeps the metadata into each chunk)
+    chunks = split_pdfs_into_chunks(file_paths)
 
     # Build deterministic ids so we can upsert only missing chunks.
     document_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
@@ -422,7 +435,10 @@ def generate_answer(
         )
         # Streaming mode cannot use `responses.parse`, so collect citations from
         # inline markers in the final text.
-        citations = [int(match.group(1)) for match in CITATION_MARKER_PATTERN.finditer(answer_text)]
+        citations = [
+            int(match.group(1))
+            for match in CITATION_MARKER_PATTERN.finditer(answer_text)
+        ]
         return AnswerWithCitations(answer=answer_text, citations=citations)
 
     response = client.responses.parse(
@@ -517,7 +533,9 @@ def reindex_citations_for_display(
         ``("... [1] ... [2]", [1, 2], {4: 1, 5: 2})``.
     """
     # Build old -> new mapping.
-    index_mapping = {old_idx: new_idx for new_idx, old_idx in enumerate(cited_indices, 1)}
+    index_mapping = {
+        old_idx: new_idx for new_idx, old_idx in enumerate(cited_indices, 1)
+    }
 
     def _replace_marker(match: re.Match[str]) -> str:
         """Rewrite one inline citation marker using ``index_mapping``.
@@ -535,10 +553,10 @@ def reindex_citations_for_display(
 
     # Replace each citation marker in `answer` with its renumbered display index.
     reindexed_answer = CITATION_MARKER_PATTERN.sub(_replace_marker, answer)
-    
+
     # Structured citation ids mirror the rewritten inline markers: [1, 2, ..., N].
     reindexed_citations = list(range(1, len(cited_indices) + 1))
-    
+
     return reindexed_answer, reindexed_citations, index_mapping
 
 

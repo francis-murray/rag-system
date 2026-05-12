@@ -84,7 +84,9 @@ Add one or more `.pdf` files to:
 data/pdf_documents/
 ```
 
-You can also upload files from the web UI (they are written to the same directory) or call `POST /upload` on the FastAPI app or `POST /api/upload` on the Next.js dev server. The vector index is built when the API process starts; restart the API after adding new PDFs so they are indexed and available to RAG queries.
+You can also add PDFs from the web UI or with `POST /upload` on the FastAPI app (`POST /api/upload` on the Next.js dev server): the file is saved under `data/pdf_documents/` and its chunks are indexed into the **running** vector store, so you do **not** need to restart the server for those uploads to become searchable.
+
+On startup, the API still indexes every PDF already in `data/pdf_documents/`. If you **copy** new PDFs into that folder yourself while the process is running, restart `uvicorn` (or the CLI) so they are picked up, or upload them through `/upload` instead.
 
 ## Usage
 
@@ -138,8 +140,8 @@ The frontend calls internal Next.js API routes:
 ### Notes
 
 - The first time you run the CLI or API, the app downloads cross-encoder weights (about 80 MB) into your local Hugging Face Hub cache. By default that is `~/.cache/huggingface/hub` on macOS and Linux, and `%USERPROFILE%\.cache\huggingface\hub` on Windows. Set `HF_HUB_CACHE` or `HF_HOME` to use a different location.
-- The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop.
-- Uploading a PDF does not rebuild the index in memory. Restart `uvicorn` (or the CLI) after new files land in `data/pdf_documents/` if you need them in search results immediately.
+- The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop. Indexing uses a persistent Chroma database under `data/chroma_langchain_db/`; new chunks are **added** for PDFs that are not already represented (stable chunk IDs avoid duplicate embeddings).
+- `POST /upload` saves a **PDF** under `data/pdf_documents/` (only the base filename is used on disk) and appends that file’s chunks to the same in-memory vector store used by `/query`, so new uploads are searchable without restarting. Dropping files into the folder outside of `/upload` still requires a process restart to index them.
 
 ## Backend API Endpoints
 
@@ -157,7 +159,13 @@ Returns service health:
 
 ### `POST /upload`
 
-Accepts a single file as `multipart/form-data` with field name `file`. The file is saved under `data/pdf_documents/` using the original filename (the directory is created if missing). The request must include a filename.
+Accepts a single file as `multipart/form-data` with field name `file`. Only **PDF** uploads are allowed (`.pdf` extension on the stored base name). The directory `data/pdf_documents/` is created if missing.
+
+The handler keeps only the **final path segment** of the client-provided filename when writing to disk (so directory components in the name cannot escape the upload folder). The JSON response echoes that stored base name as `filename`.
+
+After a successful save, the server **indexes** the new file into the shared vector store (same instance as `/query`), so the document is available for RAG without restarting.
+
+Validation errors return **400** with a JSON `detail` string, for example: missing filename, empty base name after sanitization, or non-PDF extension.
 
 Response (JSON):
 
@@ -346,9 +354,9 @@ curl -N -X POST http://127.0.0.1:3000/api/query/stream \
 
 ## How It Works
 
-1. PDFs are loaded from `data/pdf_documents/`.
+1. PDFs are loaded from `data/pdf_documents/` (on API or CLI startup for the full folder, or immediately after each successful `POST /upload`).
 2. Pages are split into overlapping text chunks.
-3. Chunks are embedded and stored in the vector database.
+3. Chunks are embedded and stored in (or merged into) the persistent vector database; existing chunk IDs are skipped so re-runs do not duplicate work.
 4. A query retrieves the top candidate chunks by vector similarity.
 5. A cross-encoder reranks candidates and selects the top chunks.
 6. The LLM answers using only the selected context.

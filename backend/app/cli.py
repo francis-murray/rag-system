@@ -1,3 +1,5 @@
+import logging
+
 from backend.app.core.config import load_and_validate_env
 from backend.app.core.logging_config import setup_logging
 from backend.app.schemas import CitedChunk
@@ -8,6 +10,8 @@ from backend.app.services.rag_service import (
     get_default_pdf_paths,
     run_rag_query,
 )
+
+logger = logging.getLogger(__name__)
 
 
 def get_query_from_user():
@@ -43,7 +47,11 @@ def main():
     except NoPdfFilesError as err:
         print(err)
         raise SystemExit(1) from None
+
+    logger.info("Building index...")
     vector_store = build_index(pdf_paths)
+
+    logger.info("Building reranker...")
     reranker = build_reranker()
 
     while True:
@@ -55,6 +63,7 @@ def main():
         if not query:
             continue
 
+        logger.info("Run RAG query...")
         structured, cited_chunks = run_rag_query(
             query=query,
             vector_store=vector_store,

@@ -26,7 +26,11 @@ async def lifespan(app: FastAPI):
     except NoPdfFilesError as err:
         logger.error("API startup aborted: %s", err)
         raise
+
+    logger.info("Building index...")
     app.state.vector_store = build_index(pdf_paths)
+
+    logger.info("Building reranker...")
     app.state.reranker = build_reranker()
     yield
 
