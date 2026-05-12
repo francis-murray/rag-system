@@ -85,9 +85,9 @@ def get_default_pdf_paths() -> list[str]:
             pdf_dir_display = pdf_dir.relative_to(get_project_root())
         except ValueError:
             pdf_dir_display = pdf_dir
-        raise NoPdfFilesError(
-            f"No .pdf files in {pdf_dir_display}. Add at least one PDF there, then try again."
-        )
+            logger.info("No .pdf files in %s. Return an empty list.", pdf_dir_display)
+            return []
+
     return pdf_paths
 
 
@@ -108,11 +108,12 @@ def build_index(file_paths: list[str]) -> Chroma:
         persist_directory=str(get_project_root() / "data" / "chroma_langchain_db"),
     )
 
-    # add documents to vector store
-    vector_store, _ = add_documents_to_vectorstore(
-        vector_store=vector_store,
-        file_paths=file_paths,
-    )
+    # add documents (if any) to vector store
+    if file_paths:
+        vector_store, _ = add_documents_to_vectorstore(
+            vector_store=vector_store,
+            file_paths=file_paths,
+        )
 
     return vector_store
 
@@ -140,6 +141,15 @@ def run_rag_query(
     candidate_chunks = query_candidate_chunks_from_vectorstore(
         vector_store=vector_store, num_candidates=num_candidates, query=query
     )
+
+    if not candidate_chunks:
+        return (
+            AnswerWithCitations(
+                answer="No indexed documents — upload at least one PDF.",
+                citations=[],
+            ),
+            [],
+        )
 
     # Per-chunk details (verbose; only useful when debugging retrieval quality)
     if logger.isEnabledFor(logging.DEBUG):

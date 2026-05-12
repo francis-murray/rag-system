@@ -21,11 +21,10 @@ async def lifespan(app: FastAPI):
     # Build shared runtime dependencies once at startup.
     load_and_validate_env()
     setup_logging()
-    try:
-        pdf_paths = get_default_pdf_paths()
-    except NoPdfFilesError as err:
-        logger.error("API startup aborted: %s", err)
-        raise
+
+    pdf_paths = get_default_pdf_paths()
+    if not pdf_paths:
+        logger.info("No indexed documents — upload at least one PDF.")
 
     logger.info("Building index...")
     app.state.vector_store = build_index(pdf_paths)

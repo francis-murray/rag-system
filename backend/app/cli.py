@@ -1,4 +1,5 @@
 import logging
+from pathlib import Path
 
 from backend.app.core.config import load_and_validate_env
 from backend.app.core.logging_config import setup_logging
@@ -42,11 +43,15 @@ def main():
     setup_logging()
 
     # Build the index and load the reranker once before accepting queries.
-    try:
-        pdf_paths = get_default_pdf_paths()
-    except NoPdfFilesError as err:
-        print(err)
-        raise SystemExit(1) from None
+    pdf_paths = get_default_pdf_paths()
+
+    logger.info("pdf_paths %s", pdf_paths)
+
+    if not pdf_paths:
+        print(
+            "There are no PDFs in the folder. \
+            Please upload at least one before querying the knowledge base."
+        )
 
     logger.info("Building index...")
     vector_store = build_index(pdf_paths)
