@@ -1,14 +1,16 @@
 import json
+import shutil
 from queue import Empty, Queue
 from threading import Thread
 from time import perf_counter, time
 from uuid import uuid4
 
-from fastapi import APIRouter, Depends, Request, status
+from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
 from fastapi.responses import StreamingResponse
 from langchain_chroma import Chroma
 from sentence_transformers import CrossEncoder
 
+from backend.app.core.paths import get_project_root
 from backend.app.schemas import (
     HealthResponse,
     QueryRequest,
@@ -39,6 +41,30 @@ def get_reranker(request: Request) -> CrossEncoder:
 async def root(request: Request) -> dict[str, str]:
     """Root endpoint returning minimal API metadata."""
     return {"name": request.app.title, "docs_url": request.app.docs_url or "/docs"}
+
+
+@router.post("/upload")
+async def upload(file: UploadFile = File(...)) -> dict[str, str]:
+    """Accept a multipart/form-data file, save it to `data/pdf_documents`, and return file metadata."""
+
+    UPLOAD_DIR = get_project_root() / "data" / "pdf_documents"
+    UPLOAD_DIR.mkdir(exist_ok=True)
+    filename = file.filename
+    if not filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file must include a filename.",
+        )
+
+    save_path = UPLOAD_DIR / filename
+
+    with open(save_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+
+    return {
+        "filename": filename,
+        "save_path": str(save_path),
+    }
 
 
 @router.get("/health", status_code=status.HTTP_200_OK)
@@ -171,35 +197,44 @@ async def query_stream(
             yield json.dumps(item) + "\n"
 
         if final_error is not None:
-            yield json.dumps(
-                StreamFailedEvent(
-                    request_id=request_id,
-                    sequence=_next_sequence(),
-                    timestamp_ms=_timestamp_ms(),
-                    message="Could not complete the request.",
-                ).model_dump()
-            ) + "\n"
+            yield (
+                json.dumps(
+                    StreamFailedEvent(
+                        request_id=request_id,
+                        sequence=_next_sequence(),
+                        timestamp_ms=_timestamp_ms(),
+                        message="Could not complete the request.",
+                    ).model_dump()
+                )
+                + "\n"
+            )
             return
 
         if final_payload is None:
-            yield json.dumps(
-                StreamFailedEvent(
+            yield (
+                json.dumps(
+                    StreamFailedEvent(
+                        request_id=request_id,
+                        sequence=_next_sequence(),
+                        timestamp_ms=_timestamp_ms(),
+                        message="The request completed without a final payload.",
+                    ).model_dump()
+                )
+                + "\n"
+            )
+            return
+
+        yield (
+            json.dumps(
+                StreamCompleteEvent(
                     request_id=request_id,
                     sequence=_next_sequence(),
                     timestamp_ms=_timestamp_ms(),
-                    message="The request completed without a final payload.",
+                    data=final_payload,
+                    timings_ms=timings_ms,
                 ).model_dump()
-            ) + "\n"
-            return
-
-        yield json.dumps(
-            StreamCompleteEvent(
-                request_id=request_id,
-                sequence=_next_sequence(),
-                timestamp_ms=_timestamp_ms(),
-                data=final_payload,
-                timings_ms=timings_ms,
-            ).model_dump()
-        ) + "\n"
+            )
+            + "\n"
+        )
 
     return StreamingResponse(event_stream(), media_type="application/x-ndjson")

@@ -10,9 +10,9 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Cross-encoder reranking
 - Citation-aware answer generation with supporting source chunks
 - Versioned prompt configuration
-- FastAPI endpoints for health checks and RAG queries
-- Next.js frontend with a RAG query interface
-- Next.js API proxy routes for backend `/health`, `/query`, and `/query/stream`
+- FastAPI endpoints for health checks, file uploads, and RAG queries
+- Next.js frontend with a RAG query interface and file upload form
+- Next.js API proxy routes for backend `/health`, `/upload`, `/query`, and `/query/stream`
 - Interactive command-line query loop
 - File and console logging
 
@@ -84,6 +84,8 @@ Add one or more `.pdf` files to:
 data/pdf_documents/
 ```
 
+You can also upload files from the web UI (they are written to the same directory) or call `POST /upload` on the FastAPI app or `POST /api/upload` on the Next.js dev server. The vector index is built when the API process starts; restart the API after adding new PDFs so they are indexed and available to RAG queries.
+
 ## Usage
 
 ### Running the CLI
@@ -127,6 +129,7 @@ http://127.0.0.1:3000
 The frontend calls internal Next.js API routes:
 
 - `GET /api/health` → proxies to backend `GET /health`
+- `POST /api/upload` → proxies multipart form-data to backend `POST /upload`
 - `POST /api/query` → validates payload and proxies to backend `POST /query`
 - `POST /api/query/stream` → validates payload and proxies to backend `POST /query/stream` (NDJSON stream)
 
@@ -136,6 +139,7 @@ The frontend calls internal Next.js API routes:
 
 - The first time you run the CLI or API, the app downloads cross-encoder weights (about 80 MB) into your local Hugging Face Hub cache. By default that is `~/.cache/huggingface/hub` on macOS and Linux, and `%USERPROFILE%\.cache\huggingface\hub` on Windows. Set `HF_HUB_CACHE` or `HF_HOME` to use a different location.
 - The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop.
+- Uploading a PDF does not rebuild the index in memory. Restart `uvicorn` (or the CLI) after new files land in `data/pdf_documents/` if you need them in search results immediately.
 
 ## Backend API Endpoints
 
@@ -147,6 +151,35 @@ Returns service health:
 {
   "status": "ok"
 }
+```
+
+---
+
+### `POST /upload`
+
+Accepts a single file as `multipart/form-data` with field name `file`. The file is saved under `data/pdf_documents/` using the original filename (the directory is created if missing). The request must include a filename.
+
+Response (JSON):
+
+```json
+{
+  "filename": "document.pdf",
+  "save_path": "/absolute/path/to/rag-system/data/pdf_documents/document.pdf"
+}
+```
+
+Example:
+
+```bash
+curl -X POST http://127.0.0.1:8000/upload \
+  -F "file=@/path/to/document.pdf"
+```
+
+Example (Next.js proxy):
+
+```bash
+curl -X POST http://127.0.0.1:3000/api/upload \
+  -F "file=@/path/to/document.pdf"
 ```
 
 ---
@@ -327,15 +360,15 @@ curl -N -X POST http://127.0.0.1:3000/api/query/stream \
 backend/
   app/
     api/                                   # FastAPI routes
-    core/                                  # Environment + logging setup
+    core/                                  # Environment, logging, project paths
     prompts/                               # Versioned prompt configuration
     services/                              # Indexing, retrieval, reranking, generation
     cli.py                                 # Interactive CLI entry point
     main.py                                # FastAPI app entry point
 frontend/
   app/
-    api/                                   # Next.js health/query/query-stream proxy routes
-    page.tsx                               # RAG query UI
+    api/                                   # Next.js proxy routes (health, upload, query, stream)
+    page.tsx                               # RAG query UI and file upload form
     layout.tsx                             # App shell and metadata
   lib/                                     # Frontend config + shared types
 data/

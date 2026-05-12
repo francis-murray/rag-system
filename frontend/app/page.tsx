@@ -124,6 +124,38 @@ export default function Home() {
   // `streamState` holds streaming UI data; `dispatchStream` applies each parsed line from the server.
   const [streamState, dispatchStream] = useReducer(streamReducer, INITIAL_STREAM_STATE);
   const [isLoading, setIsLoading] = useState(false);
+  const [isUploading, setIsUploading] = useState(false);
+
+
+  async function handleSubmitFile(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setIsUploading(true)
+
+    const form = event.currentTarget
+    const formData = new FormData(form)
+
+    try {
+      const response = await fetch("/api/upload", {
+        method: "POST",
+        body: formData
+      });
+
+      // optional: handle non-2xx
+      if (!response.ok) {
+        // Try to parse backend error JSON; fallback to null if body is empty or invalid JSON.
+        const errorBody = await response.json().catch(() => null);
+        console.error("Upload failed:", response.status, errorBody);
+      }
+      form.reset(); // clears <input type="file"> back to “No file chosen”
+      
+    } catch {
+      // Network failure, server down, or unexpected runtime issue.
+      console.error("Network error while uploading file.");
+
+    } finally {
+      setIsUploading(false)
+    }
+  }
 
   // Runs when the user submits the form.
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
@@ -303,7 +335,7 @@ export default function Home() {
           </article>
         ) : !isLoading && !lastQuestion ? (
           <div className="rounded-xl border border-dashed border-slate-600 p-6 text-sm text-slate-300">
-            Ask your first question to query the backend `/query` endpoint.
+            Ask a question about your documents in the chat box below.
           </div>
         ) : null}
 
@@ -327,6 +359,33 @@ export default function Home() {
           </div>
         ) : null}
       </section>
+      
+
+      {/* File Upload Form */}
+      <form 
+        onSubmit={handleSubmitFile}
+        className="sticky bottom-0 mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/85 p-3 backdrop-blur"
+      >
+        <label htmlFor="upload-file-input" className="sr-only">
+          Choose a file to upload
+        </label>
+        <div className="flex items-center gap-2">
+          <input
+            id="upload-file-input"
+            name="file"
+            type="file"
+            required
+            className="min-h-11 flex-1 cursor-pointer rounded-xl border border-slate-600 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-100 hover:file:bg-slate-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30"
+          />
+          <button 
+            type="submit"
+            className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-sky-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
+            disabled={isUploading}
+          >
+            {isUploading ? "Uploading..." : "Upload File"}
+          </button>
+        </div>
+      </form>
 
       {/* Input form: this is a "controlled input" because value comes from state */}
       {/* Typing triggers `setInput`; submit triggers `handleSubmit` with an event. */}
