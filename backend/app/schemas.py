@@ -44,6 +44,13 @@ class HealthResponse(BaseModel):
     status: str = Field(description="Service health status.")
 
 
+class DocumentsResponse(BaseModel):
+    """Response body for the /documents endpoint."""
+
+    pdf_paths: list[str] = Field(description="List of document paths.")
+
+
+
 StreamProgressStage = Literal["retrieval", "rerank", "inference"]
 
 

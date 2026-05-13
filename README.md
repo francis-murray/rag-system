@@ -10,9 +10,9 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Cross-encoder reranking
 - Citation-aware answer generation with supporting source chunks
 - Versioned prompt configuration
-- FastAPI endpoints for health checks, file uploads, and RAG queries
-- Next.js frontend with a RAG query interface and file upload form
-- Next.js API proxy routes for backend `/health`, `/upload`, `/query`, and `/query/stream`
+- FastAPI endpoints for health checks, file uploads, listing uploaded PDFs, and RAG queries
+- Next.js frontend with a RAG query interface, file upload form, and a list of uploaded documents
+- Next.js API proxy routes for backend `/health`, `/documents`, `/upload`, `/query`, and `/query/stream`
 - Interactive command-line query loop
 - File and console logging
 
@@ -23,7 +23,7 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Node.js 20 or higher (for the frontend)
 - `npm` (bundled with Node.js)
 - An OpenAI API key
-- At least one `.pdf` file in `data/pdf_documents/`
+- At least one PDF to query (upload from the web UI, or add manually under `data/pdf_documents/`)
 
 ## Setup
 
@@ -76,18 +76,6 @@ cp frontend/.env.example frontend/.env.local
 
 Then edit `frontend/.env.local` as needed.
 
-### PDF Documents
-
-Add one or more `.pdf` files to:
-
-```text
-data/pdf_documents/
-```
-
-You can also add PDFs from the web UI or with `POST /upload` on the FastAPI app (`POST /api/upload` on the Next.js dev server): the file is saved under `data/pdf_documents/` and its chunks are indexed into the **running** vector store, so you do **not** need to restart the server for those uploads to become searchable.
-
-On startup, the API still indexes every PDF already in `data/pdf_documents/`. If you **copy** new PDFs into that folder yourself while the process is running, restart `uvicorn` (or the CLI) so they are picked up, or upload them through `/upload` instead.
-
 ## Usage
 
 ### Running the CLI
@@ -131,6 +119,7 @@ http://127.0.0.1:3000
 The frontend calls internal Next.js API routes:
 
 - `GET /api/health` → proxies to backend `GET /health`
+- `GET /api/documents` → proxies to backend `GET /documents`
 - `POST /api/upload` → proxies multipart form-data to backend `POST /upload`
 - `POST /api/query` → validates payload and proxies to backend `POST /query`
 - `POST /api/query/stream` → validates payload and proxies to backend `POST /query/stream` (NDJSON stream)
@@ -141,7 +130,7 @@ The frontend calls internal Next.js API routes:
 
 - The first time you run the CLI or API, the app downloads cross-encoder weights (about 80 MB) into your local Hugging Face Hub cache. By default that is `~/.cache/huggingface/hub` on macOS and Linux, and `%USERPROFILE%\.cache\huggingface\hub` on Windows. Set `HF_HUB_CACHE` or `HF_HOME` to use a different location.
 - The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop. Indexing uses a persistent Chroma database under `data/chroma_langchain_db/`; new chunks are **added** for PDFs that are not already represented (stable chunk IDs avoid duplicate embeddings).
-- `POST /upload` saves a **PDF** under `data/pdf_documents/` (only the base filename is used on disk) and appends that file’s chunks to the same in-memory vector store used by `/query`, so new uploads are searchable without restarting. Dropping files into the folder outside of `/upload` still requires a process restart to index them.
+- `POST /upload` saves a **PDF** under `data/pdf_documents/` and appends that file’s chunks to the same in-memory vector store used by `/query`, so new uploads are searchable without restarting. Dropping files manually into the folder outside of `/upload` still requires a process restart to index them.
 
 ## Backend API Endpoints
 
@@ -159,9 +148,9 @@ Returns service health:
 
 ### `POST /upload`
 
-Accepts a single file as `multipart/form-data` with field name `file`. Only **PDF** uploads are allowed (`.pdf` extension on the stored base name). The directory `data/pdf_documents/` is created if missing.
+Accepts a single file as `multipart/form-data` with field name `file`. Only **PDF** uploads are allowed. The directory `data/pdf_documents/` is created if missing.
 
-The handler keeps only the **final path segment** of the client-provided filename when writing to disk (so directory components in the name cannot escape the upload folder). The JSON response echoes that stored base name as `filename`.
+The handler keeps only the final path segment of the client-provided filename when writing to disk (so directory components in the name cannot escape the upload folder). The JSON response echoes that stored base name as `filename`.
 
 After a successful save, the server **indexes** the new file into the shared vector store (same instance as `/query`), so the document is available for RAG without restarting.
 
@@ -188,6 +177,34 @@ Example (Next.js proxy):
 ```bash
 curl -X POST http://127.0.0.1:3000/api/upload \
   -F "file=@/path/to/document.pdf"
+```
+
+---
+
+### `GET /documents`
+
+Returns the sorted list of absolute paths to every `*.pdf` file currently under `data/pdf_documents/`. If there are no PDF files, `pdf_paths` is an empty array.
+
+Response (JSON):
+
+```json
+{
+  "pdf_paths": [
+    "/absolute/path/to/rag-system/data/pdf_documents/document.pdf"
+  ]
+}
+```
+
+Example:
+
+```bash
+curl http://127.0.0.1:8000/documents
+```
+
+Example (Next.js proxy):
+
+```bash
+curl http://127.0.0.1:3000/api/documents
 ```
 
 ---
@@ -375,8 +392,8 @@ backend/
     main.py                                # FastAPI app entry point
 frontend/
   app/
-    api/                                   # Next.js proxy routes (health, upload, query, stream)
-    page.tsx                               # RAG query UI and file upload form
+    api/                                   # Next.js proxy routes (health, documents, upload, query, stream)
+    page.tsx                               # RAG query UI, file upload form, PDF list
     layout.tsx                             # App shell and metadata
   lib/                                     # Frontend config + shared types
 data/

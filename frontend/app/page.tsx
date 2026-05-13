@@ -1,8 +1,8 @@
 "use client";
 
-import { useReducer, useState } from "react";
+import { useEffect, useReducer, useState } from "react";
 import type { FormEvent } from "react";
-import { QueryResponse, StreamEvent } from "@/lib/types";
+import { DocumentsResponse, QueryResponse, StreamEvent } from "@/lib/types";
 
 const INITIAL_LOADING_MESSAGE = "Starting retrieval pipeline...";
 
@@ -18,9 +18,7 @@ type StreamState = {
   timingsMs: Record<string, number> | null;
 };
 
-type StreamAction =
-  | { type: "reset" }
-  | { type: "event"; event: StreamEvent };
+type StreamAction = { type: "reset" } | { type: "event"; event: StreamEvent };
 
 const INITIAL_STREAM_STATE: StreamState = {
   requestId: null,
@@ -117,6 +115,14 @@ function getErrorMessage(data: unknown): string {
   return "Request failed.";
 }
 
+function fileNameFromPath(fullPath: string): string {
+  // Normalize path separators for cross-platform compatibility
+  const normalized = fullPath.replaceAll("\\", "/");
+
+  // Return the filename portion of the path
+  return normalized.split("/").pop() ?? "";
+}
+
 export default function Home() {
   // `useState` creates values that React remembers between renders.
   const [input, setInput] = useState("");
@@ -125,35 +131,82 @@ export default function Home() {
   const [streamState, dispatchStream] = useReducer(streamReducer, INITIAL_STREAM_STATE);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [files, setFiles] = useState<string[]>([]);
 
+  /**
+   * Fetches the current list of uploaded document file paths from the backend.
+   *
+   * @param signal Optional AbortSignal used to cancel the request if the component unmounts.
+   * @returns A promise resolving to an array of document file paths.
+   * @throws Error if the backend returns a non-2xx response.
+   */
+  async function fetchFiles(signal?: AbortSignal): Promise<string[]> {
+    const response = await fetch("/api/documents", {
+      method: "GET",
+      cache: "no-store",
+      signal,
+    });
+
+    if (!response.ok) {
+      const errorBody = await response.json().catch(() => null);
+      throw new Error(
+        `Getting files failed: ${response.status} ${JSON.stringify(errorBody)}`
+      );
+    }
+
+    const data: DocumentsResponse = await response.json();
+    return data.pdf_paths;
+  }
+
+  /**
+   * Loads the current document list when the component mounts.
+   *
+   * Uses AbortController to cancel the in-flight request if the component
+   * unmounts before the fetch completes, preventing unnecessary work.
+   */
+  useEffect(() => {
+    const controller = new AbortController();
+
+    void fetchFiles(controller.signal)
+      .then(setFiles)
+      .catch((err) => {
+        if (err.name !== "AbortError") {
+          console.error(err);
+        }
+      });
+
+    return () => {
+      controller.abort();
+    };
+  }, []);
 
   async function handleSubmitFile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
-    setIsUploading(true)
+    setIsUploading(true);
 
-    const form = event.currentTarget
-    const formData = new FormData(form)
+    const form = event.currentTarget;
+    const formData = new FormData(form);
 
     try {
       const response = await fetch("/api/upload", {
         method: "POST",
-        body: formData
+        body: formData,
       });
 
       // optional: handle non-2xx
       if (!response.ok) {
-        // Try to parse backend error JSON; fallback to null if body is empty or invalid JSON.
         const errorBody = await response.json().catch(() => null);
         console.error("Upload failed:", response.status, errorBody);
+        return;
       }
+
       form.reset(); // clears <input type="file"> back to “No file chosen”
-      
+      setFiles(await fetchFiles());
     } catch {
       // Network failure, server down, or unexpected runtime issue.
       console.error("Network error while uploading file.");
-
     } finally {
-      setIsUploading(false)
+      setIsUploading(false);
     }
   }
 
@@ -335,7 +388,7 @@ export default function Home() {
           </article>
         ) : !isLoading && !lastQuestion ? (
           <div className="rounded-xl border border-dashed border-slate-600 p-6 text-sm text-slate-300">
-            Ask a question about your documents in the chat box below.
+            To get started, upload one or more PDFs and ask a question about them in the chat box below.
           </div>
         ) : null}
 
@@ -359,10 +412,9 @@ export default function Home() {
           </div>
         ) : null}
       </section>
-      
 
       {/* File Upload Form */}
-      <form 
+      <form
         onSubmit={handleSubmitFile}
         className="sticky bottom-0 mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/85 p-3 backdrop-blur"
       >
@@ -377,7 +429,7 @@ export default function Home() {
             required
             className="min-h-11 flex-1 cursor-pointer rounded-xl border border-slate-600 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-100 hover:file:bg-slate-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30"
           />
-          <button 
+          <button
             type="submit"
             className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-sky-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isUploading}
@@ -386,6 +438,17 @@ export default function Home() {
           </button>
         </div>
       </form>
+
+      {files.length > 0 ? (
+        <section className="mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/50 p-4">
+          <h2 className="text-sm font-semibold text-slate-200">Indexed PDFs</h2>
+          <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-300">
+            {files.map((fullPath) => (
+              <li key={fullPath}>{fileNameFromPath(fullPath)}</li>
+            ))}
+          </ul>
+        </section>
+      ) : null}
 
       {/* Input form: this is a "controlled input" because value comes from state */}
       {/* Typing triggers `setInput`; submit triggers `handleSubmit` with an event. */}

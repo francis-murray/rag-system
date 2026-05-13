@@ -1,3 +1,4 @@
+import logging
 import json
 import shutil
 from queue import Empty, Queue
@@ -13,6 +14,7 @@ from sentence_transformers import CrossEncoder
 
 from backend.app.core.paths import get_project_root
 from backend.app.schemas import (
+    DocumentsResponse,
     HealthResponse,
     QueryRequest,
     QueryResponse,
@@ -23,7 +25,13 @@ from backend.app.schemas import (
     StreamProgressStage,
     StreamStartEvent,
 )
-from backend.app.services.rag_service import add_documents_to_vectorstore, run_rag_query
+from backend.app.services.rag_service import (
+    add_documents_to_vectorstore,
+    run_rag_query,
+    get_default_pdf_paths,
+)
+
+logger = logging.getLogger(__name__)
 
 router = APIRouter()
 
@@ -42,6 +50,15 @@ def get_reranker(request: Request) -> CrossEncoder:
 async def root(request: Request) -> dict[str, str]:
     """Root endpoint returning minimal API metadata."""
     return {"name": request.app.title, "docs_url": request.app.docs_url or "/docs"}
+
+
+@router.get("/documents", status_code=status.HTTP_200_OK)
+async def documents() -> DocumentsResponse:
+    pdf_paths = get_default_pdf_paths()
+    if not pdf_paths:
+        logger.info("No indexed documents — upload at least one PDF.")
+
+    return DocumentsResponse(pdf_paths=pdf_paths)
 
 
 @router.post("/upload")
