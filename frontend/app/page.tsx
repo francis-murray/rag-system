@@ -2,7 +2,7 @@
 
 import { useEffect, useReducer, useState } from "react";
 import type { FormEvent } from "react";
-import { DocumentsResponse, QueryResponse, StreamEvent } from "@/lib/types";
+import { DocumentItem, DocumentsResponse, QueryResponse, StreamEvent } from "@/lib/types";
 
 const INITIAL_LOADING_MESSAGE = "Starting retrieval pipeline...";
 
@@ -115,14 +115,6 @@ function getErrorMessage(data: unknown): string {
   return "Request failed.";
 }
 
-function fileNameFromPath(fullPath: string): string {
-  // Normalize path separators for cross-platform compatibility
-  const normalized = fullPath.replaceAll("\\", "/");
-
-  // Return the filename portion of the path
-  return normalized.split("/").pop() ?? "";
-}
-
 export default function Home() {
   // `useState` creates values that React remembers between renders.
   const [input, setInput] = useState("");
@@ -131,16 +123,16 @@ export default function Home() {
   const [streamState, dispatchStream] = useReducer(streamReducer, INITIAL_STREAM_STATE);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
-  const [files, setFiles] = useState<string[]>([]);
+  const [files, setFiles] = useState<DocumentItem[]>([]);
 
   /**
-   * Fetches the current list of uploaded document file paths from the backend.
+   * Fetches the current list of uploaded documents from the backend.
    *
    * @param signal Optional AbortSignal used to cancel the request if the component unmounts.
-   * @returns A promise resolving to an array of document file paths.
+   * @returns A promise resolving to an array of document metadata items.
    * @throws Error if the backend returns a non-2xx response.
    */
-  async function fetchFiles(signal?: AbortSignal): Promise<string[]> {
+  async function fetchFiles(signal?: AbortSignal): Promise<DocumentItem[]> {
     const response = await fetch("/api/documents", {
       method: "GET",
       cache: "no-store",
@@ -155,7 +147,7 @@ export default function Home() {
     }
 
     const data: DocumentsResponse = await response.json();
-    return data.pdf_paths;
+    return data.documents;
   }
 
   /**
@@ -443,8 +435,8 @@ export default function Home() {
         <section className="mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/50 p-4">
           <h2 className="text-sm font-semibold text-slate-200">Indexed PDFs</h2>
           <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-300">
-            {files.map((fullPath) => (
-              <li key={fullPath}>{fileNameFromPath(fullPath)}</li>
+            {files.map((document) => (
+              <li key={document.document_id}>{document.filename}</li>
             ))}
           </ul>
         </section>

@@ -14,6 +14,7 @@ from sentence_transformers import CrossEncoder
 
 from backend.app.core.paths import get_project_root
 from backend.app.schemas import (
+    DocumentItem,
     DocumentsResponse,
     HealthResponse,
     QueryRequest,
@@ -27,8 +28,9 @@ from backend.app.schemas import (
 )
 from backend.app.services.rag_service import (
     add_documents_to_vectorstore,
-    run_rag_query,
+    document_item_from_pdf_path,
     get_default_pdf_paths,
+    run_rag_query,
 )
 
 logger = logging.getLogger(__name__)
@@ -58,7 +60,10 @@ async def documents() -> DocumentsResponse:
     if not pdf_paths:
         logger.info("No indexed documents — upload at least one PDF.")
 
-    return DocumentsResponse(pdf_paths=pdf_paths)
+    documents: list[DocumentItem] = [
+        document_item_from_pdf_path(path) for path in pdf_paths
+    ]
+    return DocumentsResponse(documents=documents)
 
 
 @router.post("/upload")

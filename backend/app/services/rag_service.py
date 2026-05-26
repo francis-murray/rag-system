@@ -11,6 +11,7 @@ from typing import Callable
 import numpy as np
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
+from langchain_core.documents import Document
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
@@ -19,7 +20,7 @@ from sentence_transformers import CrossEncoder
 
 from backend.app.core.paths import get_project_root
 from backend.app.prompts.registry import load_prompt
-from backend.app.schemas import ChunkWithMetadata, CitedChunk, StreamProgressStage
+from backend.app.schemas import ChunkWithMetadata, CitedChunk, DocumentItem, StreamProgressStage
 
 logger = logging.getLogger(__name__)
 
@@ -89,6 +90,15 @@ def get_default_pdf_paths() -> list[str]:
             return []
 
     return pdf_paths
+
+
+def document_item_from_pdf_path(file_path: str) -> DocumentItem:
+    """Build API metadata for a PDF on disk."""
+    basename = Path(file_path).name
+    return DocumentItem(
+        document_id=basename,
+        filename=basename,
+    )
 
 
 def build_index(file_paths: list[str]) -> Chroma:
@@ -237,17 +247,23 @@ def run_rag_query(
     return structured, cited_chunks
 
 
-def load_pdf(file_path: str):
-    # PyPDFLoader loads one Document object per PDF page
+def load_pdf(file_path: str) -> list[Document]:
+    """Load a PDF as one LangChain ``Document`` per page.
+
+    ``PyPDFLoader`` yields page-ordered documents.
+
+    Returns:
+        A list of ``Document`` instances, one per PDF page in order.
+        Each instance has ``page_content`` and ``metadata`` attributes.
+    """
     logger.info("Loading %s", Path(file_path).name)
     loader = PyPDFLoader(file_path)
-    documents = loader.load()
+    pages = loader.load()
 
-    # reduce source to filename only instead of whole path
-    file_name = Path(file_path).name
-    for doc in documents:
-        doc.metadata["source"] = file_name
-    return documents
+    basename = Path(file_path).name
+    for page in pages:
+        page.metadata["source"] = basename
+    return pages
 
 
 def split_documents(documents, chunk_size, chunk_overlap, add_start_index):
@@ -271,18 +287,18 @@ def create_or_load_vectorstore(collection_name, embedding_function, persist_dire
     return vector_store
 
 
-def split_pdfs_into_chunks(file_paths):
-    all_chunks = []
+def split_pdfs_into_chunks(file_paths) -> list[Document]:
+    all_chunks: list[Document] = []
     for file_path in file_paths:
-        docs = load_pdf(file_path)
-        logger.info("Number of pages in pdf: %d", len(docs))
+        pdf_pages = load_pdf(file_path)
+        logger.info("Number of pages in pdf: %d", len(pdf_pages))
 
         # Split our documents into chunks (keeps the metadata into each chunk)
-        splits = split_documents(
-            docs, chunk_size=700, chunk_overlap=120, add_start_index=True
+        chunks = split_documents(
+            pdf_pages, chunk_size=700, chunk_overlap=120, add_start_index=True
         )
-        logger.info("Number of splits in pdf %d", len(splits))
-        all_chunks.extend(splits)
+        logger.info("Number of splits in pdf %d", len(chunks))
+        all_chunks.extend(chunks)
 
     logger.info("Total chunks across all PDFs: %d", len(all_chunks))
 
@@ -295,19 +311,19 @@ def add_documents_to_vectorstore(vector_store, file_paths):
     chunks = split_pdfs_into_chunks(file_paths)
 
     # Build deterministic ids so we can upsert only missing chunks.
-    document_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
+    chunk_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
 
     # Check which ids already exist to avoid re-embedding and duplicate indexing.
-    existing = vector_store.get(ids=document_ids)
+    existing = vector_store.get(ids=chunk_ids)
     existing_ids = set(existing.get("ids", []))
 
     chunks_to_add = []
     ids_to_add = []
-    for chunk, doc_id in zip(chunks, document_ids):
-        if doc_id in existing_ids:
+    for chunk, chunk_id in zip(chunks, chunk_ids):
+        if chunk_id in existing_ids:
             continue
         chunks_to_add.append(chunk)
-        ids_to_add.append(doc_id)
+        ids_to_add.append(chunk_id)
 
     if chunks_to_add:
         vector_store.add_documents(documents=chunks_to_add, ids=ids_to_add)
@@ -315,10 +331,10 @@ def add_documents_to_vectorstore(vector_store, file_paths):
     else:
         logger.info("No new chunks to index - using existing vector store.")
 
-    return vector_store, document_ids
+    return vector_store, chunk_ids
 
 
-def deterministic_chunk_id(document):
+def deterministic_chunk_id(document: Document):
     metadata = document.metadata or {}
     source = metadata.get("source", "unknown_source")
     page = metadata.get("page", "unknown_page")

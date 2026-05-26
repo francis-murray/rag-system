@@ -12,8 +12,13 @@ export type QueryResponse = {
   cited_chunks: CitedChunk[]
 }
 
+export type DocumentItem = {
+  document_id: string
+  filename: string
+}
+
 export type DocumentsResponse = {
-  pdf_paths: string[]
+  documents: DocumentItem[]
 }
 
 export type StreamEventBase = {

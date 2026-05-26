@@ -44,10 +44,14 @@ class HealthResponse(BaseModel):
     status: str = Field(description="Service health status.")
 
 
+class DocumentItem(BaseModel):
+    document_id: str = Field(description="PDF basename on disk.")
+    filename: str = Field(description="PDF basename on disk.")
+
+
 class DocumentsResponse(BaseModel):
     """Response body for the /documents endpoint."""
-
-    pdf_paths: list[str] = Field(description="List of document paths.")
+    documents: list[DocumentItem] = Field(description="Stored PDFs.")
 
 
 
