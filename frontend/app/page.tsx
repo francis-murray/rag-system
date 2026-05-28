@@ -3,7 +3,10 @@
 import { useEffect, useReducer, useState } from "react";
 import type { FormEvent } from "react";
 import { DocumentItem, DocumentsResponse, QueryResponse, StreamEvent } from "@/lib/types";
-
+import { FileExplorerPanel } from "@/components/FileExplorerPanel";
+import { ChatPanel } from "@/components/ChatPanel";
+import { DocumentViewer } from "@/components/DocumentViewer";
+  
 const INITIAL_LOADING_MESSAGE = "Starting retrieval pipeline...";
 
 // Everything the UI needs while the answer streams in: status lines, growing text, final result, errors.
@@ -314,164 +317,37 @@ export default function Home() {
   }
 
   return (
-    <main className="mx-auto flex min-h-screen w-full max-w-6xl flex-col px-4 py-6 sm:px-6">
-      {/* Page heading / intro area */}
-      <header className="mb-4 rounded-2xl border border-slate-700/60 bg-slate-900/70 p-4 backdrop-blur">
-        <p className="text-sm text-sky-300">RAG System</p>
-        <h1 className="text-xl font-semibold text-slate-50 sm:text-2xl">
-          Query your PDF knowledge base
-        </h1>
+    <main className="mx-auto grid h-[100dvh] w-full max-w-none gap-4 overflow-hidden px-2 py-4 sm:px-3 lg:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.6fr)_minmax(220px,0.8fr)] lg:grid-rows-[auto_1fr]">
+      {/* Page heading spans the full app width. */}
+      <header className="flex items-center rounded-2xl border border-slate-700/60 bg-slate-900/70 px-4 py-1.5 backdrop-blur lg:col-span-3">
+        <p className="text-xs font-medium uppercase tracking-wide text-sky-300">RAG System</p>
       </header>
 
-      {/* Main content area where error, result, or empty state is shown */}
-      <section className="flex-1 space-y-4 rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
-        {/* Only render this error box when `error` has a value */}
-        {streamState.error ? (
-          <section className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-100">
-            <p>{streamState.error}</p>
-          </section>
-        ) : null}
+      {/* Left column: uploaded document list + upload form. */}
+      <FileExplorerPanel
+        documents={files}
+        isUploading={isUploading}
+        onUploadSubmit={handleSubmitFile}
+      />
 
-        {lastQuestion ? (
-          <article className="ml-auto max-w-[95%] rounded-2xl border border-sky-500/40 bg-sky-500/20 p-4 shadow-lg">
-            <p className="mb-2 text-xs uppercase tracking-wide text-slate-300">
-              You
-            </p>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-100">
-              {lastQuestion}
-            </p>
-          </article>
-        ) : null}
-
-        {/* Finished reply (after the last stream message). Not the same box as the "loading" assistant area. */}
-        {streamState.result ? (
-          <article className="mr-auto max-w-[95%] rounded-2xl border border-slate-600 bg-slate-800/80 p-4 shadow-lg">
-            <p className="mb-2 text-xs uppercase tracking-wide text-slate-300">
-              Assistant
-            </p>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-100">
-              {streamState.result.answer}
-            </p>
-
-            {/* Render citations only if backend returned at least one chunk */}
-            {streamState.result.cited_chunks.length > 0 ? (
-              <div className="mt-4 space-y-2">
-                <h2 className="text-xs font-semibold text-slate-300">
-                  Citations
-                </h2>
-                <div className="space-y-2">
-                  {/* `map` turns each citation object into visible JSX */}
-                  {streamState.result.cited_chunks.map((chunk) => (
-                    <article
-                      key={`${chunk.document_id}-${chunk.citation_index}`}
-                      className="rounded-lg border border-slate-600/70 bg-slate-900/50 p-3"
-                    >
-                      <p className="text-xs font-medium text-sky-300">
-                        [{chunk.citation_index}] {chunk.source} (page {chunk.page + 1})
-                      </p>
-                      <p className="mt-1 text-xs text-slate-300">
-                        {chunk.content}
-                      </p>
-                    </article>
-                  ))}
-                </div>
-              </div>
-            ) : null}
-          </article>
-        ) : !isLoading && !lastQuestion ? (
-          <div className="rounded-xl border border-dashed border-slate-600 p-6 text-sm text-slate-300">
-            To get started, upload one or more PDFs and ask a question about them in the chat box below.
-          </div>
-        ) : null}
-
-        {/* Waiting on the server: show status lines until the first answer characters arrive, then only the growing answer. */}
-        {isLoading ? (
-          <div className="mr-auto max-w-[95%] rounded-2xl border border-slate-600 bg-slate-800/80 p-4">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">
-              Assistant
-            </p>
-            {streamState.streamedAnswer ? (
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-100">
-                {streamState.streamedAnswer}
-              </p>
-            ) : (
-              <div className="mt-1 space-y-1 text-sm text-slate-400">
-                {streamState.progressMessages.map((message, idx) => (
-                  <p key={`${message}-${idx}`}>{message}</p>
-                ))}
-              </div>
-            )}
-          </div>
-        ) : null}
+      {/* Middle column: document preview panel. */}
+      <section className="min-h-0 min-w-0 rounded-2xl border border-slate-700/60 bg-slate-900/50 p-4">
+        <DocumentViewer />
       </section>
 
-      {/* File Upload Form */}
-      <form
-        onSubmit={handleSubmitFile}
-        className="sticky bottom-0 mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/85 p-3 backdrop-blur"
-      >
-        <label htmlFor="upload-file-input" className="sr-only">
-          Choose a file to upload
-        </label>
-        <div className="flex items-center gap-2">
-          <input
-            id="upload-file-input"
-            name="file"
-            type="file"
-            required
-            className="min-h-11 flex-1 cursor-pointer rounded-xl border border-slate-600 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-100 hover:file:bg-slate-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30"
-          />
-          <button
-            type="submit"
-            className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-sky-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
-            disabled={isUploading}
-          >
-            {isUploading ? "Uploading..." : "Upload File"}
-          </button>
-        </div>
-      </form>
-
-      {files.length > 0 ? (
-        <section className="mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/50 p-4">
-          <h2 className="text-sm font-semibold text-slate-200">Available documents</h2>
-          <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-300">
-            {files.map((document) => (
-              <li key={document.document_id}>{document.filename}</li>
-            ))}
-          </ul>
-        </section>
-      ) : null}
-
-      {/* Input form: this is a "controlled input" because value comes from state */}
-      {/* Typing triggers `setInput`; submit triggers `handleSubmit` with an event. */}
-      <form
+      {/* Right column: chat conversation and message composer. */}
+      <ChatPanel
+        title="Assistant chat"
+        error={streamState.error}
+        lastQuestion={lastQuestion}
+        result={streamState.result}
+        isLoading={isLoading}
+        streamedAnswer={streamState.streamedAnswer}
+        progressMessages={streamState.progressMessages}
+        input={input}
+        onInputChange={setInput}
         onSubmit={handleSubmit}
-        autoComplete="off"
-        className="sticky bottom-0 mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/85 p-3 backdrop-blur"
-      >
-        <label htmlFor="question-input" className="sr-only">
-          Ask a question
-        </label>
-        <div className="flex items-center gap-2">
-          <input
-            id="question-input"
-            name="question-input"
-            type="text"
-            autoComplete="off"
-            value={input}
-            onChange={(event) => setInput(event.target.value)}
-            placeholder="Ask about your documents..."
-            className="min-h-11 flex-1 rounded-xl border border-slate-600 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30"
-          />
-          <button
-            type="submit"
-            disabled={isLoading || input.trim().length === 0}
-            className="rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-sky-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            {isLoading ? "Sending..." : "Send"}
-          </button>
-        </div>
-      </form>
+      />
     </main>
   );
 }
