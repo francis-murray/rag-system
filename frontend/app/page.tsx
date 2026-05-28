@@ -1,7 +1,7 @@
 "use client";
 
-import { useEffect, useReducer, useState } from "react";
-import type { FormEvent } from "react";
+import { useEffect, useReducer, useRef, useState } from "react";
+import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent } from "react";
 import { DocumentItem, DocumentsResponse, QueryResponse, StreamEvent } from "@/lib/types";
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { ChatPanel } from "@/components/ChatPanel";
@@ -9,7 +9,51 @@ import { DocumentViewer } from "@/components/DocumentViewer";
   
 const INITIAL_LOADING_MESSAGE = "Starting retrieval pipeline...";
 
-// Everything the UI needs while the answer streams in: status lines, growing text, final result, errors.
+// Desktop layout: fixed side panels, a bounded flexible viewer, and narrow drag gutters.
+const HANDLE_WIDTH = 10;
+const MIN_LEFT_WIDTH = 220;
+const MIN_RIGHT_WIDTH = 220;
+const MIN_CENTER_WIDTH = 260;
+const DEFAULT_LEFT_WIDTH = 320;
+const DEFAULT_RIGHT_WIDTH = 320;
+
+type ResizeSide = "left" | "right";
+
+function clamp(value: number, min: number, max: number): number {
+  return Math.min(Math.max(value, min), max);
+}
+
+function getGridBounds(element: HTMLElement) {
+  const rect = element.getBoundingClientRect();
+  const style = getComputedStyle(element);
+  const paddingLeft = parseFloat(style.paddingLeft);
+  const paddingRight = parseFloat(style.paddingRight);
+  const columnGap = parseFloat(style.columnGap) || 0;
+
+  return {
+    left: rect.left + paddingLeft,
+    right: rect.right - paddingRight,
+    contentWidth: element.clientWidth - paddingLeft - paddingRight,
+    columnGap,
+  };
+}
+
+// Keep enough room for the opposite side panel, both gutters, and the viewer's minimum width.
+function getMaxSideWidth(
+  contentWidth: number,
+  columnGap: number,
+  oppositeSideWidth: number
+): number {
+  return (
+    contentWidth -
+    oppositeSideWidth -
+    HANDLE_WIDTH * 2 -
+    MIN_CENTER_WIDTH -
+    columnGap * 4
+  );
+}
+
+// Everything the UI needs while an answer streams in.
 // The server sends one small JSON object per line; shapes are defined in @/lib/types.
 type StreamState = {
   requestId: string | null;
@@ -33,7 +77,7 @@ const INITIAL_STREAM_STATE: StreamState = {
   timingsMs: null,
 };
 
-// Turns one server event into the next screen state. Only read `state` / `action` and return a new object
+// Applies one NDJSON stream event to the visible chat state.
 function streamReducer(state: StreamState, action: StreamAction): StreamState {
   if (action.type === "reset") {
     return INITIAL_STREAM_STATE;
@@ -56,7 +100,7 @@ function streamReducer(state: StreamState, action: StreamAction): StreamState {
     return state;
   }
 
-  // Start from the old state, then record this line's id + sequence. The branches below add type-specific fields.
+  // Record the accepted event first; each branch below adds type-specific fields.
   const nextState = {
     ...state,
     requestId: event.request_id,
@@ -81,7 +125,7 @@ function streamReducer(state: StreamState, action: StreamAction): StreamState {
     if (!event.delta) {
       return nextState;
     }
-    // Another piece of the assistant reply—glue it onto what we already showed while waiting.
+    // Append the next streamed answer fragment.
     return {
       ...nextState,
       streamedAnswer: `${nextState.streamedAnswer}${event.delta}`,
@@ -119,7 +163,6 @@ function getErrorMessage(data: unknown): string {
 }
 
 export default function Home() {
-  // `useState` creates values that React remembers between renders.
   const [input, setInput] = useState("");
   const [lastQuestion, setLastQuestion] = useState("");
   // `streamState` holds streaming UI data; `dispatchStream` applies each parsed line from the server.
@@ -127,6 +170,10 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [files, setFiles] = useState<DocumentItem[]>([]);
+  // Resizable 3-column layout on desktop (explorer | viewer | chat); widths reset on refresh.
+  const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH);
+  const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
+  const mainRef = useRef<HTMLElement | null>(null);
 
   /**
    * Fetches the current list of uploaded documents from the backend.
@@ -175,6 +222,64 @@ export default function Home() {
     };
   }, []);
 
+  /** Pushes a synthetic `failed` event for client-side request/stream failures. */
+  function dispatchLocalFailure(message: string) {
+    dispatchStream({
+      type: "event",
+      event: {
+        type: "failed",
+        stream_version: 1,
+        request_id: "local",
+        sequence: Number.MAX_SAFE_INTEGER,
+        timestamp_ms: Date.now(),
+        code: "internal_error",
+        message,
+      },
+    });
+  }
+
+  // Desktop drag gutters resize the fixed side panels while preserving the viewer minimum.
+  function startResize(side: ResizeSide, event: ReactMouseEvent<HTMLDivElement>) {
+    event.preventDefault();
+    const onMove = (moveEvent: MouseEvent) => {
+      const main = mainRef.current;
+      if (!main) return;
+
+      const bounds = getGridBounds(main);
+
+      if (side === "left") {
+        const maxLeftWidth = getMaxSideWidth(
+          bounds.contentWidth,
+          bounds.columnGap,
+          rightWidth
+        );
+        const nextWidth = moveEvent.clientX - bounds.left;
+        setLeftWidth(
+          clamp(nextWidth, MIN_LEFT_WIDTH, Math.max(MIN_LEFT_WIDTH, maxLeftWidth))
+        );
+        return;
+      }
+
+      const maxRightWidth = getMaxSideWidth(
+        bounds.contentWidth,
+        bounds.columnGap,
+        leftWidth
+      );
+      const nextWidth = bounds.right - moveEvent.clientX;
+      setRightWidth(
+        clamp(nextWidth, MIN_RIGHT_WIDTH, Math.max(MIN_RIGHT_WIDTH, maxRightWidth))
+      );
+    };
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+    };
+    document.body.style.cursor = "col-resize";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  }
+
   async function handleSubmitFile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsUploading(true);
@@ -188,14 +293,14 @@ export default function Home() {
         body: formData,
       });
 
-      // optional: handle non-2xx
       if (!response.ok) {
         const errorBody = await response.json().catch(() => null);
         console.error("Upload failed:", response.status, errorBody);
         return;
       }
 
-      form.reset(); // clears <input type="file"> back to “No file chosen”
+      // Resetting the form clears the file input after a successful upload.
+      form.reset();
       setFiles(await fetchFiles());
     } catch {
       // Network failure, server down, or unexpected runtime issue.
@@ -232,36 +337,12 @@ export default function Home() {
       // Non-2xx responses go to the error box instead of result UI.
       if (!response.ok) {
         const data = await response.json();
-        // Pretend the server sent a `failed` event
-        dispatchStream({
-          type: "event",
-          event: {
-            type: "failed",
-            stream_version: 1,
-            request_id: "local",
-            sequence: Number.MAX_SAFE_INTEGER,
-            timestamp_ms: Date.now(),
-            code: "internal_error",
-            message: getErrorMessage(data),
-          },
-        });
+        dispatchLocalFailure(getErrorMessage(data));
         return;
       }
 
       if (!response.body) {
-        // Same fake `failed` event as above
-        dispatchStream({
-          type: "event",
-          event: {
-            type: "failed",
-            stream_version: 1,
-            request_id: "local",
-            sequence: Number.MAX_SAFE_INTEGER,
-            timestamp_ms: Date.now(),
-            code: "internal_error",
-            message: "No response stream was returned.",
-          },
-        });
+        dispatchLocalFailure("No response stream was returned.");
         return;
       }
 
@@ -299,27 +380,28 @@ export default function Home() {
       }
     } catch {
       // Network failure, server down, or unexpected runtime issue.
-      dispatchStream({
-        type: "event",
-        event: {
-          type: "failed",
-          stream_version: 1,
-          request_id: "local",
-          sequence: Number.MAX_SAFE_INTEGER,
-          timestamp_ms: Date.now(),
-          code: "internal_error",
-          message: "Could not reach the server. Please try again.",
-        },
-      });
+      dispatchLocalFailure("Could not reach the server. Please try again.");
     } finally {
       setIsLoading(false);
     }
   }
 
+  // explorer | gutter | bounded viewer | gutter | chat
+  const desktopColumns = `${leftWidth}px ${HANDLE_WIDTH}px minmax(${MIN_CENTER_WIDTH}px, 1fr) ${HANDLE_WIDTH}px ${rightWidth}px`;
+  const layoutStyle = {
+    "--desktop-columns": desktopColumns,
+  } as CSSProperties;
+
   return (
-    <main className="mx-auto grid h-[100dvh] w-full max-w-none gap-4 overflow-hidden px-2 py-4 sm:px-3 lg:grid-cols-[minmax(220px,0.8fr)_minmax(0,1.6fr)_minmax(220px,0.8fr)] lg:grid-rows-[auto_1fr]">
-      {/* Page heading spans the full app width. */}
-      <header className="flex items-center rounded-2xl border border-slate-700/60 bg-slate-900/70 px-4 py-1.5 backdrop-blur lg:col-span-3">
+    <main
+      ref={mainRef}
+      className="mx-auto grid h-[100dvh] w-full max-w-none gap-4 overflow-hidden px-2 py-4 sm:px-3 lg:grid-cols-[var(--desktop-columns)] lg:grid-rows-[auto_1fr]"
+      style={layoutStyle}
+    >
+      {/* Header spans all grid columns on desktop (five tracks including gutters). */}
+      <header
+        className="rounded-2xl border border-slate-700/60 bg-slate-900/70 px-4 py-1.5 backdrop-blur lg:col-span-5"
+      >
         <p className="text-xs font-medium uppercase tracking-wide text-sky-300">RAG System</p>
       </header>
 
@@ -330,10 +412,24 @@ export default function Home() {
         onUploadSubmit={handleSubmitFile}
       />
 
+      <div
+        role="separator"
+        aria-label="Resize file explorer"
+        onMouseDown={(event) => startResize("left", event)}
+        className="hidden min-h-0 rounded-md bg-slate-700/60 transition hover:bg-slate-500 lg:block lg:cursor-col-resize"
+      />
+
       {/* Middle column: document preview panel. */}
       <section className="min-h-0 min-w-0 rounded-2xl border border-slate-700/60 bg-slate-900/50 p-4">
         <DocumentViewer />
       </section>
+
+      <div
+        role="separator"
+        aria-label="Resize chat panel"
+        onMouseDown={(event) => startResize("right", event)}
+        className="hidden min-h-0 rounded-md bg-slate-700/60 transition hover:bg-slate-500 lg:block lg:cursor-col-resize"
+      />
 
       {/* Right column: chat conversation and message composer. */}
       <ChatPanel
