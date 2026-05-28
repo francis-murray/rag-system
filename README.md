@@ -10,9 +10,9 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Cross-encoder reranking
 - Citation-aware answer generation with supporting source chunks
 - Versioned prompt configuration
-- FastAPI endpoints for health checks, file uploads, listing uploaded PDFs, and RAG queries
+- FastAPI endpoints for health checks, PDF upload, document listing, document file serving, and RAG queries
+- Next.js API proxy routes for corresponding backend endpoints
 - Next.js frontend with a RAG query interface, file upload form, and a list of uploaded documents
-- Next.js API proxy routes for backend `/health`, `/documents`, `/upload`, `/query`, and `/query/stream`
 - Interactive command-line query loop
 - File and console logging
 
@@ -120,6 +120,7 @@ The frontend calls internal Next.js API routes:
 
 - `GET /api/health` → proxies to backend `GET /health`
 - `GET /api/documents` → proxies to backend `GET /documents`
+- `GET /api/documents/{document_id}/file` → proxies to backend `GET /documents/{document_id}/file` (PDF bytes)
 - `POST /api/upload` → proxies multipart form-data to backend `POST /upload`
 - `POST /api/query` → validates payload and proxies to backend `POST /query`
 - `POST /api/query/stream` → validates payload and proxies to backend `POST /query/stream` (NDJSON stream)
@@ -183,14 +184,22 @@ curl -X POST http://127.0.0.1:3000/api/upload \
 
 ### `GET /documents`
 
-Returns the sorted list of absolute paths to every `*.pdf` file currently under `data/pdf_documents/`. If there are no PDF files, `pdf_paths` is an empty array.
+Returns stored documents under `data/pdf_documents/` as metadata objects. Each item includes:
+
+- `document_id`: stable file identifier (currently the PDF basename on disk)
+- `filename`: display name (currently the same basename)
+
+If there are no PDF files, `documents` is an empty array.
 
 Response (JSON):
 
 ```json
 {
-  "pdf_paths": [
-    "/absolute/path/to/rag-system/data/pdf_documents/document.pdf"
+  "documents": [
+    {
+      "document_id": "document.pdf",
+      "filename": "document.pdf"
+    }
   ]
 }
 ```
@@ -205,6 +214,34 @@ Example (Next.js proxy):
 
 ```bash
 curl http://127.0.0.1:3000/api/documents
+```
+
+---
+
+### `GET /documents/{document_id}/file`
+
+Returns the raw PDF file bytes for a stored document id.
+
+- `document_id` must be a safe basename (path traversal is rejected)
+- only `.pdf` files are currently served
+- response is returned with `Content-Type: application/pdf` and `Content-Disposition: inline`
+
+Status codes:
+
+- `200` when the file exists and is served
+- `400` for invalid document id or unsupported extension
+- `404` when the document does not exist
+
+Example:
+
+```bash
+curl -i "http://127.0.0.1:8000/documents/document.pdf/file"
+```
+
+Example (Next.js proxy):
+
+```bash
+curl -i "http://127.0.0.1:3000/api/documents/document.pdf/file"
 ```
 
 ---
@@ -229,7 +266,8 @@ Response:
   "cited_chunks": [
     {
       "citation_index": 1,
-      "document_id": "chunk-id",
+      "chunk_id": "chunk-id",
+      "document_id": "document.pdf",
       "source": "document.pdf",
       "page": 0,
       "start_index": 123,
@@ -321,7 +359,8 @@ The JSON below is **pretty-printed** so the fields are easy to scan. On the wire
       "cited_chunks": [
         {
           "citation_index": 1,
-          "document_id": "chunk-id",
+          "chunk_id": "chunk-id",
+          "document_id": "document.pdf",
           "source": "document.pdf",
           "page": 0,
           "start_index": 123,
@@ -392,7 +431,7 @@ backend/
     main.py                                # FastAPI app entry point
 frontend/
   app/
-    api/                                   # Next.js proxy routes (health, documents, upload, query, stream)
+    api/                                   # Next.js proxy routes (health, documents, documents/{id}/file, upload, query, stream)
     page.tsx                               # RAG query UI, file upload form, PDF list
     layout.tsx                             # App shell and metadata
   lib/                                     # Frontend config + shared types
