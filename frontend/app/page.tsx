@@ -433,7 +433,7 @@ export default function Home() {
 
       {files.length > 0 ? (
         <section className="mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/50 p-4">
-          <h2 className="text-sm font-semibold text-slate-200">Indexed PDFs</h2>
+          <h2 className="text-sm font-semibold text-slate-200">Available documents</h2>
           <ul className="mt-2 list-inside list-disc space-y-1 text-sm text-slate-300">
             {files.map((document) => (
               <li key={document.document_id}>{document.filename}</li>

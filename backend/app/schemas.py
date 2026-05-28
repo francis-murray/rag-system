@@ -6,7 +6,8 @@ from pydantic import BaseModel, Field
 class ChunkWithMetadata(BaseModel):
     """A retrieved document chunk with its source metadata."""
 
-    document_id: str = Field(description="Unique chunk identifier.")
+    chunk_id: str = Field(description="Unique chunk identifier.")
+    document_id: str = Field(description="Unique document (file id) identifier.")
     source: str = Field(description="Source document path.")
     page: int = Field(description="Zero-based page index.")
     start_index: int = Field(description="Chunk start offset in page.")

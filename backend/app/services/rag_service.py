@@ -263,6 +263,7 @@ def load_pdf(file_path: str) -> list[Document]:
     basename = Path(file_path).name
     for page in pages:
         page.metadata["source"] = basename
+        page.metadata["document_id"] = basename
     return pages
 
 
@@ -400,9 +401,11 @@ def get_top_k_chunks(candidate_chunks, sorted_idx, k) -> list[ChunkWithMetadata]
     top_k_chunks: list[ChunkWithMetadata] = []
 
     for idx in sorted_idx[:k]:
+
         top_k_chunks.append(
             ChunkWithMetadata(
-                document_id=candidate_chunks[idx].id,
+                chunk_id=candidate_chunks[idx].id,
+                document_id=candidate_chunks[idx].metadata["document_id"],
                 source=candidate_chunks[idx].metadata["source"],
                 page=candidate_chunks[idx].metadata["page"],
                 start_index=candidate_chunks[idx].metadata["start_index"],

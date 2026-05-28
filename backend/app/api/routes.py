@@ -245,6 +245,7 @@ async def query_stream(
             yield json.dumps(item) + "\n"
 
         if final_error is not None:
+            logger.warning("/query/stream endpoint exception: %s", final_error)
             yield (
                 json.dumps(
                     StreamFailedEvent(
