@@ -395,12 +395,12 @@ export default function Home() {
   return (
     <main
       ref={mainRef}
-      className="mx-auto grid h-[100dvh] w-full max-w-none gap-4 overflow-hidden px-2 py-4 sm:px-3 lg:grid-cols-[var(--desktop-columns)] lg:grid-rows-[auto_1fr]"
+      className="mx-auto grid h-[100dvh] min-w-0 max-w-full grid-cols-1 gap-4 overflow-x-hidden px-2 py-4 sm:px-3 lg:grid-cols-[var(--desktop-columns)] lg:grid-rows-[auto_1fr] lg:overflow-hidden"
       style={layoutStyle}
     >
       {/* Header spans all grid columns on desktop (five tracks including gutters). */}
       <header
-        className="rounded-2xl border border-slate-700/60 bg-slate-900/70 px-4 py-1.5 backdrop-blur lg:col-span-5"
+        className="min-w-0 rounded-2xl border border-slate-700/60 bg-slate-900/70 px-4 py-1.5 backdrop-blur lg:col-span-5"
       >
         <p className="text-xs font-medium uppercase tracking-wide text-sky-300">RAG System</p>
       </header>

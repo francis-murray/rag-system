@@ -15,7 +15,7 @@ export function FileExplorerPanel({
   onUploadSubmit,
 }: FileExplorerPanelProps) {
   return (
-    <aside className="flex min-h-0 flex-col gap-4 rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
+    <aside className="flex min-h-0 min-w-0 flex-col gap-4 rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
       <h2 className="text-sm font-semibold text-slate-200">Available documents</h2>
 
       {/* File Explorer */}
@@ -46,13 +46,13 @@ export function FileExplorerPanel({
         <label htmlFor="upload-file-input" className="sr-only">
           Choose a file to upload
         </label>
-        <div className="flex flex-col gap-2">
+        <div className="flex min-w-0 flex-col gap-2">
           <input
             id="upload-file-input"
             name="file"
             type="file"
             required
-            className="min-h-11 w-full cursor-pointer rounded-xl border border-slate-600 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 file:mr-3 file:rounded-lg file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-100 hover:file:bg-slate-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30"
+            className="min-h-11 min-w-0 max-w-full cursor-pointer rounded-xl border border-slate-600 bg-slate-950/70 px-3 py-2 text-sm text-slate-200 file:mr-3 file:max-w-[50%] file:truncate file:rounded-lg file:border-0 file:bg-slate-700 file:px-3 file:py-1.5 file:text-sm file:font-medium file:text-slate-100 hover:file:bg-slate-600 focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30"
           />
           <button
             type="submit"
