@@ -1,14 +1,14 @@
-import logging
 import json
+import logging
 import shutil
+from pathlib import Path
 from queue import Empty, Queue
 from threading import Thread
 from time import perf_counter, time
 from uuid import uuid4
-from pathlib import Path
 
 from fastapi import APIRouter, Depends, File, HTTPException, Request, UploadFile, status
-from fastapi.responses import StreamingResponse
+from fastapi.responses import FileResponse, StreamingResponse
 from langchain_chroma import Chroma
 from sentence_transformers import CrossEncoder
 
@@ -29,6 +29,7 @@ from backend.app.schemas import (
 from backend.app.services.rag_service import (
     add_documents_to_vectorstore,
     document_item_from_pdf_path,
+    get_default_pdf_dir,
     get_default_pdf_paths,
     run_rag_query,
 )
@@ -64,6 +65,46 @@ async def documents() -> DocumentsResponse:
         document_item_from_pdf_path(path) for path in pdf_paths
     ]
     return DocumentsResponse(documents=documents)
+
+
+@router.get("/documents/{document_id}/file")
+async def get_document_file(document_id: str) -> FileResponse:
+
+    safe_name = Path(document_id).name
+    if safe_name != document_id:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid document id.",
+        )
+
+    # Keep this extension policy explicit for now (PDF-only viewer step).
+    if not safe_name.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Only PDF documents are supported.",
+        )
+
+    pdf_dir = get_default_pdf_dir()
+    file_path = (pdf_dir / safe_name).resolve()
+
+    # Extra safety: ensure resolved path stays under pdf_dir.
+    if pdf_dir.resolve() not in file_path.parents:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid document path.",
+        )
+
+    if not file_path.is_file():
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
+
+    return FileResponse(
+        path=file_path,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
+    )
 
 
 @router.post("/upload")
