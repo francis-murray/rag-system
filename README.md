@@ -12,7 +12,7 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Versioned prompt configuration
 - FastAPI endpoints for health checks, PDF upload, document listing, document file serving, and RAG queries
 - Next.js API proxy routes for corresponding backend endpoints
-- Next.js frontend with a RAG query interface, file upload form, and a list of uploaded documents
+- Next.js frontend with a three-panel layout: document list and upload, document viewer placeholder, and streaming chat
 - Interactive command-line query loop
 - File and console logging
 
@@ -432,8 +432,12 @@ backend/
 frontend/
   app/
     api/                                   # Next.js proxy routes (health, documents, documents/{id}/file, upload, query, stream)
-    page.tsx                               # RAG query UI, file upload form, PDF list
+    page.tsx                               # Home page: 3-panel layout, streaming, upload/query orchestration
     layout.tsx                             # App shell and metadata
+  components/
+    FileExplorerPanel.tsx                  # Left column: document list + upload
+    DocumentViewer.tsx                     # Center column: preview placeholder
+    ChatPanel.tsx                          # Right column: streaming chat UI
   lib/                                     # Frontend config + shared types
 data/
   pdf_documents/                           # Add source PDFs here
