@@ -5,12 +5,16 @@ import { DocumentItem } from "@/lib/types";
 
 type FileExplorerPanelProps = {
   documents: DocumentItem[];
+  selectedDocumentId: string | null;
+  onSelectDocument: (documentId: string) => void;
   isUploading: boolean;
   onUploadSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 };
 
 export function FileExplorerPanel({
   documents,
+  selectedDocumentId,
+  onSelectDocument,
   isUploading,
   onUploadSubmit,
 }: FileExplorerPanelProps) {
@@ -23,18 +27,31 @@ export function FileExplorerPanel({
         <p className="mt-2 text-sm text-slate-400">No uploaded documents yet.</p>
       ) : (
         <ul className="mt-3 min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-700/70 bg-slate-950/35">
-          {documents.map((document) => (
-            <li
-              key={document.document_id}
-              className="flex items-center gap-2 border-b border-slate-800/80 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-800/50 last:border-b-0"
-              title={document.filename}
-            >
-              <span className="text-slate-500" aria-hidden="true">
-                📄
-              </span>
-              <span className="min-w-0 flex-1 truncate">{document.filename}</span>
-            </li>
-          ))}
+          {documents.map((document) => {
+            const isSelected = document.document_id === selectedDocumentId;
+            return (
+              <li
+                key={document.document_id}
+                className="flex items-center gap-2 border-b border-slate-800/80 px-3 py-2 text-sm text-slate-300 transition-colors hover:bg-slate-800/50 last:border-b-0"
+              >
+                <button
+                  type="button"
+                  onClick={() => onSelectDocument(document.document_id)}
+                  title={document.filename}
+                  className={`flex w-full items-center gap-2 px-3 py-2 text-left text-sm transition-colors ${
+                    isSelected
+                      ? "bg-sky-500/15 text-sky-100"
+                      : "text-slate-300 hover:bg-slate-800/50"
+                  }`}
+                >
+                  <span className="text-slate-500" aria-hidden="true">
+                    📄
+                  </span>
+                  <span className="min-w-0 flex-1 truncate">{document.filename}</span>
+                </button>
+              </li>
+            );
+          })}
         </ul>
       )}
 

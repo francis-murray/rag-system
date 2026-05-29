@@ -25,6 +25,7 @@ from backend.app.schemas import (
     StreamProgressEvent,
     StreamProgressStage,
     StreamStartEvent,
+    UploadResponse,
 )
 from backend.app.services.rag_service import (
     add_documents_to_vectorstore,
@@ -108,7 +109,7 @@ async def get_document_file(document_id: str) -> FileResponse:
 
 
 @router.post("/upload")
-async def upload(request: Request, file: UploadFile = File(...)) -> dict[str, str]:
+async def upload(request: Request, file: UploadFile = File(...)) -> UploadResponse:
     """Accept a multipart/form-data file, save it to `data/pdf_documents`, and return file metadata."""
 
     UPLOAD_DIR = get_project_root() / "data" / "pdf_documents"
@@ -150,10 +151,10 @@ async def upload(request: Request, file: UploadFile = File(...)) -> dict[str, st
         file_paths=[str(save_path)],
     )
 
-    return {
-        "filename": safe_name,
-        "save_path": str(save_path),
-    }
+    return UploadResponse(
+        document_id=safe_name,
+        filename=safe_name,
+    )
 
 
 @router.get("/health", status_code=status.HTTP_200_OK)

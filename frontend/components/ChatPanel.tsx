@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import type { QueryResponse } from "@/lib/types";
+import type { CitedChunk, QueryResponse } from "@/lib/types";
 
 type ChatPanelProps = {
   title: string;
@@ -14,6 +14,7 @@ type ChatPanelProps = {
   input: string;
   onInputChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
+  onCitationClick: (chunk: CitedChunk) => void;
 };
 
 export function ChatPanel({
@@ -27,6 +28,7 @@ export function ChatPanel({
   input,
   onInputChange,
   onSubmit,
+  onCitationClick,
 }: ChatPanelProps) {
   return (
     <section className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
@@ -63,15 +65,22 @@ export function ChatPanel({
                 <h2 className="text-xs font-semibold text-slate-300">Citations</h2>
                 <div className="space-y-2">
                   {result.cited_chunks.map((chunk) => (
-                    <article
+
+
+
+
+
+                    <button
+                      type="button"
                       key={`${chunk.document_id}-${chunk.citation_index}`}
-                      className="rounded-lg border border-slate-600/70 bg-slate-900/50 p-3"
+                      onClick={() => onCitationClick(chunk)}
+                      className="block w-full rounded-lg border border-slate-600/70 bg-slate-900/50 p-3 text-left transition-colors hover:border-sky-400/60 hover:bg-slate-800/60 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
                     >
                       <p className="text-xs font-medium text-sky-300">
                         [{chunk.citation_index}] {chunk.source} (page {chunk.page + 1})
                       </p>
                       <p className="mt-1 text-xs text-slate-300">{chunk.content}</p>
-                    </article>
+                    </button>
                   ))}
                 </div>
               </div>

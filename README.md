@@ -12,7 +12,7 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Versioned prompt configuration
 - FastAPI endpoints for health checks, PDF upload, document listing, document file serving, and RAG queries
 - Next.js API proxy routes for corresponding backend endpoints
-- Next.js frontend with a three-panel layout: document list and upload, document viewer placeholder, and streaming chat
+- Next.js frontend with a three-panel layout: document list and upload, PDF viewer with citation navigation, and streaming chat
 - Interactive command-line query loop
 - File and console logging
 
@@ -151,7 +151,7 @@ Returns service health:
 
 Accepts a single file as `multipart/form-data` with field name `file`. Only **PDF** uploads are allowed. The directory `data/pdf_documents/` is created if missing.
 
-The handler keeps only the final path segment of the client-provided filename when writing to disk (so directory components in the name cannot escape the upload folder). The JSON response echoes that stored base name as `filename`.
+The handler keeps only the final path segment of the client-provided filename when writing to disk (so directory components in the name cannot escape the upload folder). The JSON response returns `document_id` and `filename`.
 
 After a successful save, the server **indexes** the new file into the shared vector store (same instance as `/query`), so the document is available for RAG without restarting.
 
@@ -161,8 +161,8 @@ Response (JSON):
 
 ```json
 {
-  "filename": "document.pdf",
-  "save_path": "/absolute/path/to/rag-system/data/pdf_documents/document.pdf"
+  "document_id": "document.pdf",
+  "filename": "document.pdf"
 }
 ```
 
@@ -436,8 +436,9 @@ frontend/
     layout.tsx                             # App shell and metadata
   components/
     FileExplorerPanel.tsx                  # Left column: document list + upload
-    DocumentViewer.tsx                     # Center column: preview placeholder
-    ChatPanel.tsx                          # Right column: streaming chat UI
+    DocumentViewer.tsx                     # Center column: PDF viewer shell
+    PdfCanvas.tsx                          # react-pdf canvas (client-only)
+    ChatPanel.tsx                          # Right column: streaming chat + clickable citations
   lib/                                     # Frontend config + shared types
 data/
   pdf_documents/                           # Add source PDFs here

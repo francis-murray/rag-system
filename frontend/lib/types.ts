@@ -1,10 +1,16 @@
 export type CitedChunk = {
+  chunk_id: string
   document_id: string
   source: string
   page: number
   start_index: number
   content: string
   citation_index: number
+}
+
+export type CitationTarget = {
+  chunk: CitedChunk,
+  nonce: number
 }
 
 export type QueryResponse = {
@@ -19,6 +25,11 @@ export type DocumentItem = {
 
 export type DocumentsResponse = {
   documents: DocumentItem[]
+}
+
+export type UploadResponse = {
+  document_id: string
+  filename: string
 }
 
 export type StreamEventBase = {

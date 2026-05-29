@@ -2,7 +2,7 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent } from "react";
-import { DocumentItem, DocumentsResponse, QueryResponse, StreamEvent } from "@/lib/types";
+import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, QueryResponse, StreamEvent, UploadResponse } from "@/lib/types";
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentViewer } from "@/components/DocumentViewer";
@@ -175,6 +175,13 @@ export default function Home() {
   const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
   const mainRef = useRef<HTMLElement | null>(null);
 
+  const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
+  // Set when a citation card is clicked; PdfCanvas scrolls to chunk.page.
+  const [citationTarget, setCitationTarget] = useState<CitationTarget | null>(null);
+  // Updated on each explorer click so the viewer resets to page 1,
+  // even when the same document is selected again.
+  const [viewerResetNonce, setViewerResetNonce] = useState(0);
+
   /**
    * Fetches the current list of uploaded documents from the backend.
    *
@@ -299,15 +306,32 @@ export default function Home() {
         return;
       }
 
+      const data: UploadResponse = await response.json();
+
       // Resetting the form clears the file input after a successful upload.
       form.reset();
       setFiles(await fetchFiles());
+      // Open the new upload in the viewer at page 1 (uses document_id from the upload response).
+      handleSelectDocument(data.document_id);
     } catch {
       // Network failure, server down, or unexpected runtime issue.
       console.error("Network error while uploading file.");
     } finally {
       setIsUploading(false);
     }
+  }
+
+  function handleCitationClick(chunk: CitedChunk) {
+    setSelectedDocumentId(chunk.document_id);
+    // nonce changes every click so PdfCanvas re-scrolls even to the same page.
+    setCitationTarget({ chunk, nonce: Date.now() });
+  }
+
+  // Explorer selection: open the doc at page 1, not wherever a citation left off.
+  function handleSelectDocument(documentId: string) {
+    setSelectedDocumentId(documentId);
+    setCitationTarget(null); // prevent a stale citation from re-scrolling
+    setViewerResetNonce(Date.now()); // new value triggers scroll-to-top in PdfCanvas
   }
 
   // Runs when the user submits the form.
@@ -408,6 +432,8 @@ export default function Home() {
       {/* Left column: uploaded document list + upload form. */}
       <FileExplorerPanel
         documents={files}
+        selectedDocumentId={selectedDocumentId}
+        onSelectDocument={handleSelectDocument}
         isUploading={isUploading}
         onUploadSubmit={handleSubmitFile}
       />
@@ -421,7 +447,11 @@ export default function Home() {
 
       {/* Middle column: document preview panel. */}
       <section className="min-h-0 min-w-0 rounded-2xl border border-slate-700/60 bg-slate-900/50 p-4">
-        <DocumentViewer />
+        <DocumentViewer
+          documentId={selectedDocumentId}
+          citationTarget={citationTarget}
+          resetNonce={viewerResetNonce}
+        />
       </section>
 
       <div
@@ -443,6 +473,7 @@ export default function Home() {
         input={input}
         onInputChange={setInput}
         onSubmit={handleSubmit}
+        onCitationClick={handleCitationClick}
       />
     </main>
   );

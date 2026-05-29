@@ -52,8 +52,15 @@ class DocumentItem(BaseModel):
 
 class DocumentsResponse(BaseModel):
     """Response body for the /documents endpoint."""
+
     documents: list[DocumentItem] = Field(description="Stored PDFs.")
 
+
+class UploadResponse(BaseModel):
+    """Response body for the /upload endpoint."""
+
+    document_id: str = Field(description="PDF basename on disk.")
+    filename: str = Field(description="PDF basename on disk.")
 
 
 StreamProgressStage = Literal["retrieval", "rerank", "inference"]
