@@ -48,10 +48,6 @@ CITATION_MARKER_PATTERN = re.compile(r"\[(\d+)\]")
 CROSS_ENCODER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L6-v2"
 
 
-class NoPdfFilesError(ValueError):
-    """The default PDF directory exists but contains no ``*.pdf`` files."""
-
-
 def build_reranker() -> CrossEncoder:
     """Load the cross-encoder model once (called at app startup).
 
@@ -74,7 +70,6 @@ def get_default_pdf_paths() -> list[str]:
 
     Raises:
         FileNotFoundError: If ``pdf_dir`` does not exist.
-        NoPdfFilesError: If the directory exists but contains no ``*.pdf`` files.
     """
     pdf_dir = get_default_pdf_dir()
     if not pdf_dir.is_dir():

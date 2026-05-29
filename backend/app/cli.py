@@ -1,11 +1,9 @@
 import logging
-from pathlib import Path
 
 from backend.app.core.config import load_and_validate_env
 from backend.app.core.logging_config import setup_logging
 from backend.app.schemas import CitedChunk
 from backend.app.services.rag_service import (
-    NoPdfFilesError,
     build_index,
     build_reranker,
     get_default_pdf_paths,
