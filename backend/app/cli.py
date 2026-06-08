@@ -67,14 +67,14 @@ def main():
             continue
 
         logger.info("Run RAG query...")
-        structured, cited_chunks = run_rag_query(
+        rag_result = run_rag_query(
             query=query,
             vector_store=vector_store,
             reranker=reranker,
         )
         print("=" * 80)
-        print(f"Answer:\n\n{structured.answer}")
-        print_cited_chunks(cited_chunks)
+        print(f"Answer:\n\n{rag_result.answer_with_citations.answer}")
+        print_cited_chunks(rag_result.cited_chunks)
 
     print("Goodbye! Thanks for using rag-system!")
 

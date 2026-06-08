@@ -170,15 +170,16 @@ async def query(
     reranker: CrossEncoder = Depends(get_reranker),
 ) -> QueryResponse:
     """Run a RAG query and return the answer with its supporting chunks."""
-    structured, cited_chunks = run_rag_query(
+
+    rag_results = run_rag_query(
         query=body.query,
         vector_store=vector_store,
         reranker=reranker,
     )
 
     return QueryResponse(
-        answer=structured.answer,
-        cited_chunks=cited_chunks,
+        answer=rag_results.answer_with_citations.answer,
+        cited_chunks=rag_results.cited_chunks,
     )
 
 
@@ -253,16 +254,17 @@ async def query_stream(
         def _worker() -> None:
             nonlocal final_payload, final_error, timings_ms
             try:
-                structured, cited_chunks = run_rag_query(
+                rag_results = run_rag_query(
                     query=body.query,
                     vector_store=vector_store,
                     reranker=reranker,
                     on_progress=_emit_progress,
                     on_delta=_emit_delta,
                 )
+
                 final_payload = QueryResponse(
-                    answer=structured.answer,
-                    cited_chunks=cited_chunks,
+                    answer=rag_results.answer_with_citations.answer,
+                    cited_chunks=rag_results.cited_chunks,
                 )
                 timings_ms["total"] = int((perf_counter() - started_at) * 1000)
             except Exception as exc:  # pragma: no cover

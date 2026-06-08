@@ -20,7 +20,12 @@ from sentence_transformers import CrossEncoder
 
 from backend.app.core.paths import get_project_root
 from backend.app.prompts.registry import load_prompt
-from backend.app.schemas import ChunkWithMetadata, CitedChunk, DocumentItem, StreamProgressStage
+from backend.app.schemas import (
+    ChunkWithMetadata,
+    CitedChunk,
+    DocumentItem,
+    StreamProgressStage,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -35,6 +40,11 @@ class AnswerWithCitations(BaseModel):
     citations: list[int] = Field(
         description="1-based context block ids used to support the answer."
     )
+
+
+class RagQueryResult(BaseModel):
+    answer_with_citations: AnswerWithCitations
+    cited_chunks: list[CitedChunk]
 
 
 ProgressCallback = Callable[[StreamProgressStage, str], None]
@@ -129,7 +139,7 @@ def run_rag_query(
     reranker: CrossEncoder,
     on_progress: ProgressCallback | None = None,
     on_delta: Callable[[str], None] | None = None,
-) -> tuple[AnswerWithCitations, list[CitedChunk]]:
+) -> RagQueryResult:
 
     ###################################################
     ########        2. RETRIEVAL STAGE         ########
@@ -148,12 +158,12 @@ def run_rag_query(
     )
 
     if not candidate_chunks:
-        return (
-            AnswerWithCitations(
+        return RagQueryResult(
+            answer_with_citations=AnswerWithCitations(
                 answer="No indexed documents — upload at least one PDF.",
                 citations=[],
             ),
-            [],
+            cited_chunks=[],
         )
 
     # Per-chunk details (verbose; only useful when debugging retrieval quality)
@@ -210,11 +220,14 @@ def run_rag_query(
             best_rerank_score,
             rerank_confidence_threshold,
         )
-        fallback = AnswerWithCitations(
-            answer="I don't know (retrieved context confidence is too low).",
-            citations=[],
+
+        return RagQueryResult(
+            answer_with_citations=AnswerWithCitations(
+                answer="I don't know (retrieved context confidence is too low).",
+                citations=[],
+            ),
+            cited_chunks=[],
         )
-        return fallback, []
 
     citation_map, context_text = build_context_for_llm(top_k_chunks)
     logger.debug("Context text passed to LLM:\n%s", context_text)
@@ -239,7 +252,7 @@ def run_rag_query(
     # Rewrite citation metadata/chunk indices to match.
     cited_chunks = get_cited_chunks(citation_map, cited_indices, index_mapping)
 
-    return structured, cited_chunks
+    return RagQueryResult(answer_with_citations=structured, cited_chunks=cited_chunks)
 
 
 def load_pdf(file_path: str) -> list[Document]:
@@ -396,7 +409,6 @@ def get_top_k_chunks(candidate_chunks, sorted_idx, k) -> list[ChunkWithMetadata]
     top_k_chunks: list[ChunkWithMetadata] = []
 
     for idx in sorted_idx[:k]:
-
         top_k_chunks.append(
             ChunkWithMetadata(
                 chunk_id=candidate_chunks[idx].id,
