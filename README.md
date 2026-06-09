@@ -15,6 +15,7 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Next.js API proxy routes for corresponding backend endpoints
 - Next.js frontend with a three-panel layout: document list and upload, PDF viewer with citation navigation, and streaming chat
 - Interactive command-line query loop
+- Offline RAG evaluation with ragas metrics (faithfulness, factual correctness, retrieval quality)
 - File and console logging
 
 ## Requirements
@@ -37,7 +38,7 @@ cd rag-system
 
 > Prefer using Dev Containers?
 >
-> Follow [`.devcontainer/README.md`](./.devcontainer/README.md) instead of the local setup steps below.
+> Follow `[.devcontainer/README.md](./.devcontainer/README.md)` instead of the local setup steps below.
 
 Install backend dependencies:
 
@@ -47,7 +48,7 @@ uv sync
 
 By default, `uv sync` creates a local virtual environment at `.venv`.
 
-_In the Dev Container workflow, dependencies are installed into `.venv-docker` inside the container to keep host and container environments separate._
+*In the Dev Container workflow, dependencies are installed into `.venv-docker` inside the container to keep host and container environments separate.*
 
 Install frontend dependencies:
 
@@ -81,10 +82,10 @@ Then edit `frontend/.env.local` as needed.
 
 RAG models, retrieval parameters, indexing settings, and the prompt name live in `backend/app/config/rag.yaml`. Edit that file to change behavior. Sections and keys:
 
-- **`models`**: `rag`, `embedding`, `reranker`, `evaluation`
-- **`prompt`**: `name` (lookup key in `prompts/registry`)
-- **`retrieval`**: `num_candidates`, `top_k`, `rerank_confidence_threshold`
-- **`index`**: `collection_name`, `chunk_size`, `chunk_overlap`
+- `**models**`: `rag`, `embedding`, `reranker`, `evaluation`
+- `**prompt**`: `name` (lookup key in `prompts/registry`)
+- `**retrieval**`: `num_candidates`, `top_k`, `rerank_confidence_threshold`
+- `**index**`: `collection_name`, `chunk_size`, `chunk_overlap`
 
 See `backend/app/config/rag.yaml` for the current values.
 
@@ -321,8 +322,7 @@ Every event shares an envelope: `stream_version`, `request_id`, `sequence` (mono
 
 The JSON below is **pretty-printed** so the fields are easy to scan. On the wire, each event is **one line of compact JSON** (no indentation or extra newlines inside the object), then a newline before the next event—typical NDJSON style.
 
-- **`start`** — first line; echoes the query text.
-
+- `**start`** — first line; echoes the query text.
   ```json
   {
     "type": "start",
@@ -333,9 +333,7 @@ The JSON below is **pretty-printed** so the fields are easy to scan. On the wire
     "query": "What is this document about?"
   }
   ```
-
-- **`progress`** — pipeline milestones while work runs. `stage` is one of `retrieval`, `rerank`, or `inference` (model call / streamed answer).
-
+- `**progress**` — pipeline milestones while work runs. `stage` is one of `retrieval`, `rerank`, or `inference` (model call / streamed answer).
   ```json
   {
     "type": "progress",
@@ -347,9 +345,7 @@ The JSON below is **pretty-printed** so the fields are easy to scan. On the wire
     "message": "Retrieving candidate chunks from the vector store..."
   }
   ```
-
-- **`delta`** — zero or more lines; each appends a chunk of the streamed answer text.
-
+- `**delta**` — zero or more lines; each appends a chunk of the streamed answer text.
   ```json
   {
     "type": "delta",
@@ -360,9 +356,7 @@ The JSON below is **pretty-printed** so the fields are easy to scan. On the wire
     "delta": "A concise answer"
   }
   ```
-
-- **`complete`** — final success line: canonical `data` (same shape as `POST /query`) plus `timings_ms` (e.g. first occurrence of each `stage`, `first_token_ms`, `total`).
-
+- `**complete**` — final success line: canonical `data` (same shape as `POST /query`) plus `timings_ms` (e.g. first occurrence of each `stage`, `first_token_ms`, `total`).
   ```json
   {
     "type": "complete",
@@ -393,9 +387,7 @@ The JSON below is **pretty-printed** so the fields are easy to scan. On the wire
     }
   }
   ```
-
-- **`failed`** — terminal error line with a stable `code` and user-safe `message`.
-
+- `**failed**` — terminal error line with a stable `code` and user-safe `message`.
   ```json
   {
     "type": "failed",
@@ -444,6 +436,7 @@ backend/
       rag.yaml                             # Models, retrieval, indexing, prompt name
       rag_settings.py                      # Typed RagSettings loader (cached)
     core/                                  # Environment, logging, project paths
+    evals/                                 # Offline ragas evaluation CLI
     prompts/                               # Versioned prompt configuration
     services/                              # Indexing, retrieval, reranking, generation
     cli.py                                 # Interactive CLI entry point
@@ -461,8 +454,48 @@ frontend/
   lib/                                     # Frontend config + shared types
 data/
   pdf_documents/                           # Add source PDFs here
+  evals/                                   # Golden dataset + run results
   chroma_langchain_db/                     # Generated vector DB (local, at runtime)
 logs/
   app.log                                  # Generated application logs
 ```
 
+## Evals
+
+### Offline RAG evaluation (ragas)
+
+**Prerequisites**
+
+- PDFs indexed under `data/pdf_documents/` that match the questions you evaluate.
+- A golden dataset file at `data/evals/golden_eval.jsonl` with one JSON object per line:
+
+```json
+{"question": "What is ...?", "golden_answer": "Manually verified answer ..."}
+```
+
+Write `question` and `golden_answer` pairs for content in your indexed PDFs.
+
+**Run the evaluator**
+
+```bash
+uv run python -m backend.app.evals.eval
+```
+
+Useful flags:
+
+- `--dataset-path` (default: `data/evals/golden_eval.jsonl`)
+- `--model` (default: `evaluation` model from `rag.yaml`)
+- `--limit` (run only the first N examples for quick checks)
+- `--output-path` (default: timestamped CSV under `data/evals/results/`)
+
+**What it does**
+
+1. Loads the golden dataset.
+2. Runs each question through the current RAG pipeline (same indexing, retrieval, reranking, and generation as production).
+3. Scores each sample with ragas metrics:
+  - **Context recall** — do the retrieved chunks contain the information needed to support the golden answer?
+  - **Context precision** — are the highest-ranked retrieved chunks relevant to the golden answer?
+  - **Faithfulness** — are generated claims supported by retrieved chunks?
+  - **Factual correctness** — does the generated answer agree with the golden answer?
+4. Writes per-sample scores to a timestamped CSV under `data/evals/results/`.
+5. Appends a summary row (mean scores plus run metadata) to `data/evals/results/evals_aggregate.csv`.

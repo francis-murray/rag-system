@@ -46,6 +46,8 @@ class AnswerWithCitations(BaseModel):
 class RagQueryResult(BaseModel):
     answer_with_citations: AnswerWithCitations
     cited_chunks: list[CitedChunk]
+    
+    top_k_chunks: list[ChunkWithMetadata] # for eval purposes
 
 
 ProgressCallback = Callable[[StreamProgressStage, str], None]
@@ -162,6 +164,7 @@ def run_rag_query(
                 citations=[],
             ),
             cited_chunks=[],
+            top_k_chunks=[]
         )
 
     # Per-chunk details (verbose; only useful when debugging retrieval quality)
@@ -225,6 +228,7 @@ def run_rag_query(
                 citations=[],
             ),
             cited_chunks=[],
+            top_k_chunks=top_k_chunks
         )
 
     citation_map, context_text = build_context_for_llm(top_k_chunks)
@@ -253,7 +257,11 @@ def run_rag_query(
     # Rewrite citation metadata/chunk indices to match.
     cited_chunks = get_cited_chunks(citation_map, cited_indices, index_mapping)
 
-    return RagQueryResult(answer_with_citations=structured, cited_chunks=cited_chunks)
+    return RagQueryResult(
+        answer_with_citations=structured, 
+        cited_chunks=cited_chunks,
+        top_k_chunks=top_k_chunks
+    )
 
 
 def load_pdf(file_path: str) -> list[Document]:
@@ -466,9 +474,9 @@ def generate_answer(
 
     if on_progress is not None:
         on_progress("inference", "Sending question and context to the LLM…")
-    logger.info("Starting LLM stream request (model=%s)...", model)
 
     if on_delta is not None:
+        logger.info("Starting LLM stream request (model=%s)...", model)
         answer_text = generate_answer_streaming(
             client=client,
             model=model,
@@ -485,6 +493,7 @@ def generate_answer(
         ]
         return AnswerWithCitations(answer=answer_text, citations=citations)
 
+    logger.info("Starting LLM request (model=%s)...", model)
     response = client.responses.parse(
         model=model,
         input=[
@@ -551,6 +560,25 @@ def collect_cited_indices(answer, structured_citations, citation_map):
             ordered.append(idx)
 
     return ordered
+
+
+def remove_citation_markers(answer: str) -> str:
+    """Remove inline citation markers from generated answer text.
+
+    Args:
+        answer: Answer text that may contain inline citation markers, e.g.
+            ``"BERT uses MLM [4] and NSP. [5]"``.
+
+    Returns:
+        The answer with citation markers removed, e.g.
+        ``"BERT uses MLM and NSP."``.
+
+    Example:
+        ``remove_citation_markers("BERT uses MLM [4] and NSP. [5]")`` returns
+        ``"BERT uses MLM and NSP."``.
+    """
+    without_markers = CITATION_MARKER_PATTERN.sub("", answer)
+    return re.sub(r" +", " ", without_markers).strip()
 
 
 def reindex_citations_for_display(
