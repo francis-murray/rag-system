@@ -9,6 +9,7 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Embedding-based semantic search
 - Cross-encoder reranking
 - Citation-aware answer generation with supporting source chunks
+- Centralized RAG configuration via `rag.yaml` (models, retrieval, indexing, prompt name)
 - Versioned prompt configuration
 - FastAPI endpoints for health checks, PDF upload, document listing, document file serving, and RAG queries
 - Next.js API proxy routes for corresponding backend endpoints
@@ -75,6 +76,21 @@ cp frontend/.env.example frontend/.env.local
 ```
 
 Then edit `frontend/.env.local` as needed.
+
+## Configuration
+
+RAG models, retrieval parameters, indexing settings, and the prompt name live in `backend/app/config/rag.yaml`. Edit that file to change behavior. Sections and keys:
+
+- **`models`**: `rag`, `embedding`, `reranker`, `evaluation`
+- **`prompt`**: `name` (lookup key in `prompts/registry`)
+- **`retrieval`**: `num_candidates`, `top_k`, `rerank_confidence_threshold`
+- **`index`**: `collection_name`, `chunk_size`, `chunk_overlap`
+
+See `backend/app/config/rag.yaml` for the current values.
+
+`backend/app/config/rag_settings.py` loads and validates this file into a typed `RagSettings` model via `get_rag_settings()`. Entry points (API lifespan and the interactive CLI) call `get_rag_settings()` once at startup and pass `RagSettings` through the pipeline—indexing, retrieval, reranking, and generation read from that object instead of hardcoded values.
+
+Restart the API or CLI after editing `rag.yaml`; settings are cached for the lifetime of the process.
 
 ## Usage
 
@@ -424,6 +440,9 @@ curl -N -X POST http://127.0.0.1:3000/api/query/stream \
 backend/
   app/
     api/                                   # FastAPI routes
+    config/
+      rag.yaml                             # Models, retrieval, indexing, prompt name
+      rag_settings.py                      # Typed RagSettings loader (cached)
     core/                                  # Environment, logging, project paths
     prompts/                               # Versioned prompt configuration
     services/                              # Indexing, retrieval, reranking, generation
