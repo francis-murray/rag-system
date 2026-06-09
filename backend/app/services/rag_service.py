@@ -12,14 +12,16 @@ import numpy as np
 from langchain_chroma import Chroma
 from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
+from langchain_core.embeddings import Embeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
 from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
+from backend.app.config.rag_settings import RagSettings
 from backend.app.core.paths import get_project_root
-from backend.app.prompts.registry import load_prompt
+from backend.app.prompts.registry import Prompt, load_prompt
 from backend.app.schemas import (
     ChunkWithMetadata,
     CitedChunk,
@@ -41,7 +43,6 @@ class AnswerWithCitations(BaseModel):
         description="1-based context block ids used to support the answer."
     )
 
-
 class RagQueryResult(BaseModel):
     answer_with_citations: AnswerWithCitations
     cited_chunks: list[CitedChunk]
@@ -53,19 +54,14 @@ ProgressCallback = Callable[[StreamProgressStage, str], None]
 # Matches inline citations like "[1]" or "[12]" in the LLM answer.
 CITATION_MARKER_PATTERN = re.compile(r"\[(\d+)\]")
 
-# Single source of truth for the reranker model. Loaded once at startup
-# via build_reranker() and reused across queries.
-CROSS_ENCODER_MODEL_NAME = "cross-encoder/ms-marco-MiniLM-L6-v2"
-
-
-def build_reranker() -> CrossEncoder:
+def build_reranker(settings: RagSettings) -> CrossEncoder:
     """Load the cross-encoder model once (called at app startup).
 
     First run downloads weights from the HuggingFace Hub (~80MB) into the
     user's local cache. Subsequent runs load from disk.
     """
-    logger.info("Loading cross-encoder model %s...", CROSS_ENCODER_MODEL_NAME)
-    return CrossEncoder(CROSS_ENCODER_MODEL_NAME)
+    logger.info("Loading cross-encoder model %s...", settings.models.reranker)
+    return CrossEncoder(settings.models.reranker)
 
 
 def get_default_pdf_dir() -> Path:
@@ -106,7 +102,7 @@ def document_item_from_pdf_path(file_path: str) -> DocumentItem:
     )
 
 
-def build_index(file_paths: list[str]) -> Chroma:
+def build_index(file_paths: list[str], settings: RagSettings) -> Chroma:
 
     ###################################################
     ########      1. INDEXING STAGE            ########
@@ -114,11 +110,11 @@ def build_index(file_paths: list[str]) -> Chroma:
     logger.info("Indexing stage for %d PDF file(s)...", len(file_paths))
 
     # Get embeddings function
-    embeddings = get_embedding_function(openai_model_name="text-embedding-3-large")
+    embeddings = get_embedding_function(embedding_model_name=settings.models.embedding)
 
     # create or load existing vector store
     vector_store = create_or_load_vectorstore(
-        collection_name="documents_collection",
+        collection_name=settings.index.collection_name,
         embedding_function=embeddings,
         persist_directory=str(get_project_root() / "data" / "chroma_langchain_db"),
     )
@@ -128,6 +124,7 @@ def build_index(file_paths: list[str]) -> Chroma:
         vector_store, _ = add_documents_to_vectorstore(
             vector_store=vector_store,
             file_paths=file_paths,
+            settings=settings,
         )
 
     return vector_store
@@ -137,6 +134,7 @@ def run_rag_query(
     query: str,
     vector_store: Chroma,
     reranker: CrossEncoder,
+    settings: RagSettings,
     on_progress: ProgressCallback | None = None,
     on_delta: Callable[[str], None] | None = None,
 ) -> RagQueryResult:
@@ -146,7 +144,7 @@ def run_rag_query(
     ###################################################
 
     # Size of initial set of retrieved chunks.
-    num_candidates = 30
+    num_candidates = settings.retrieval.num_candidates
 
     # Mirror this stage to the client.
     if on_progress is not None:
@@ -188,7 +186,7 @@ def run_rag_query(
     sorted_idx, sorted_scores = rerank_pairs(reranker, sentence_pairs)
 
     # Get top k results with metadata
-    top_k_num = 5
+    top_k_num = settings.retrieval.top_k
     if on_progress is not None:
         on_progress("rerank", f"Selecting the top {top_k_num} chunks as context...")
     logger.info("Selecting the top %d chunks as context", top_k_num)
@@ -213,7 +211,7 @@ def run_rag_query(
     # Answer the question using an LLM and the top k chunks as context.
     # If retrieval confidence is too low, avoid forcing a hallucinated answer.
     best_rerank_score = sorted_scores[0] if len(sorted_scores) > 0 else -1.0
-    rerank_confidence_threshold = 0.2
+    rerank_confidence_threshold = settings.retrieval.rerank_confidence_threshold
     if best_rerank_score < rerank_confidence_threshold:
         logger.warning(
             "Skipping generation: best rerank score %.2f below threshold %.2f",
@@ -232,9 +230,12 @@ def run_rag_query(
     citation_map, context_text = build_context_for_llm(top_k_chunks)
     logger.debug("Context text passed to LLM:\n%s", context_text)
 
+    prompt = load_prompt(settings.prompt.name)
     structured = generate_answer(
         query,
         context_text,
+        model=settings.models.rag,
+        prompt=prompt,
         on_progress=on_progress,
         on_delta=on_delta,
     )
@@ -296,7 +297,9 @@ def create_or_load_vectorstore(collection_name, embedding_function, persist_dire
     return vector_store
 
 
-def split_pdfs_into_chunks(file_paths) -> list[Document]:
+def split_pdfs_into_chunks(
+    file_paths: list[str], settings: RagSettings
+) -> list[Document]:
     all_chunks: list[Document] = []
     for file_path in file_paths:
         pdf_pages = load_pdf(file_path)
@@ -304,7 +307,10 @@ def split_pdfs_into_chunks(file_paths) -> list[Document]:
 
         # Split our documents into chunks (keeps the metadata into each chunk)
         chunks = split_documents(
-            pdf_pages, chunk_size=700, chunk_overlap=120, add_start_index=True
+            pdf_pages,
+            chunk_size=settings.index.chunk_size,
+            chunk_overlap=settings.index.chunk_overlap,
+            add_start_index=True,
         )
         logger.info("Number of splits in pdf %d", len(chunks))
         all_chunks.extend(chunks)
@@ -314,10 +320,12 @@ def split_pdfs_into_chunks(file_paths) -> list[Document]:
     return all_chunks
 
 
-def add_documents_to_vectorstore(vector_store, file_paths):
+def add_documents_to_vectorstore(
+    vector_store: Chroma, file_paths: list[str], settings: RagSettings
+):
 
     # Split documents into chunks (keeps the metadata into each chunk)
-    chunks = split_pdfs_into_chunks(file_paths)
+    chunks = split_pdfs_into_chunks(file_paths, settings)
 
     # Build deterministic ids so we can upsert only missing chunks.
     chunk_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
@@ -360,9 +368,9 @@ def deterministic_chunk_id(document: Document):
     return hashlib.sha256(id_seed.encode("utf-8")).hexdigest()
 
 
-def get_embedding_function(openai_model_name="text-embedding-3-large"):
-    logger.info("Initializing embedding client with %s", openai_model_name)
-    embeddings = OpenAIEmbeddings(model=openai_model_name)
+def get_embedding_function(embedding_model_name: str) -> Embeddings:
+    logger.info("Initializing embedding client with %s", embedding_model_name)
+    embeddings = OpenAIEmbeddings(model=embedding_model_name)
 
     vector_1 = embeddings.embed_query("first chunk")
     vector_2 = embeddings.embed_query("This is another chunk")
@@ -446,12 +454,12 @@ def build_context_for_llm(
 def generate_answer(
     query: str,
     context_text: str,
-    model: str = "gpt-5-mini",
+    model: str,
+    prompt: Prompt,
     on_progress: ProgressCallback | None = None,
     on_delta: Callable[[str], None] | None = None,
 ) -> AnswerWithCitations:
     """Ask the LLM to answer the question using only the provided context."""
-    prompt = load_prompt("qa")
     system_msg, user_msg = prompt.render(query=query, context_text=context_text)
 
     client = OpenAI()

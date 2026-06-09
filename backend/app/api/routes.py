@@ -12,6 +12,7 @@ from fastapi.responses import FileResponse, StreamingResponse
 from langchain_chroma import Chroma
 from sentence_transformers import CrossEncoder
 
+from backend.app.config.rag_settings import RagSettings
 from backend.app.core.paths import get_project_root
 from backend.app.schemas import (
     DocumentItem,
@@ -48,6 +49,11 @@ def get_vector_store(request: Request) -> Chroma:
 def get_reranker(request: Request) -> CrossEncoder:
     """Provide the shared cross-encoder reranker loaded once at app startup."""
     return request.app.state.reranker
+
+
+def get_rag_settings(request: Request) -> RagSettings:
+    """Provide the RAG settings loaded once at app startup."""
+    return request.app.state.rag_settings
 
 
 @router.get("/")
@@ -149,6 +155,7 @@ async def upload(request: Request, file: UploadFile = File(...)) -> UploadRespon
     _, _ = add_documents_to_vectorstore(
         vector_store=app.state.vector_store,
         file_paths=[str(save_path)],
+        settings=app.state.rag_settings,
     )
 
     return UploadResponse(
@@ -168,6 +175,7 @@ async def query(
     body: QueryRequest,
     vector_store: Chroma = Depends(get_vector_store),
     reranker: CrossEncoder = Depends(get_reranker),
+    settings: RagSettings = Depends(get_rag_settings),
 ) -> QueryResponse:
     """Run a RAG query and return the answer with its supporting chunks."""
 
@@ -175,6 +183,7 @@ async def query(
         query=body.query,
         vector_store=vector_store,
         reranker=reranker,
+        settings=settings,
     )
 
     return QueryResponse(
@@ -188,6 +197,7 @@ async def query_stream(
     body: QueryRequest,
     vector_store: Chroma = Depends(get_vector_store),
     reranker: CrossEncoder = Depends(get_reranker),
+    settings: RagSettings = Depends(get_rag_settings),
 ) -> StreamingResponse:
     """V1 stream contract: start/progress/delta/complete|failed lifecycle events."""
 
@@ -258,6 +268,7 @@ async def query_stream(
                     query=body.query,
                     vector_store=vector_store,
                     reranker=reranker,
+                    settings=settings,
                     on_progress=_emit_progress,
                     on_delta=_emit_delta,
                 )
