@@ -106,7 +106,12 @@ export function ChatPanel({
   onCitationClick,
 }: ChatPanelProps) {
   const timingDisplay = timingsMs ? buildTimingDisplay(timingsMs) : null;
+  const [usageDetailsOpen, setUsageDetailsOpen] = useState(false);
   const [timingDetailsOpen, setTimingDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    setUsageDetailsOpen(false);
+  }, [usage?.total_tokens]);
 
   useEffect(() => {
     setTimingDetailsOpen(false);
@@ -172,10 +177,22 @@ export function ChatPanel({
               <div className="mt-4 space-y-1 text-xs text-slate-400">
                 {usage ? (
                   <p>
-                    <span className="font-semibold text-slate-300">Usage:</span> Input tokens:{" "}
-                    {usage.input_tokens.toLocaleString()} · Output tokens:{" "}
-                    {usage.output_tokens.toLocaleString()} · Total tokens:{" "}
-                    {usage.total_tokens.toLocaleString()}
+                    <span className="font-semibold text-slate-300">Usage:</span> Total{" "}
+                    {usage.total_tokens.toLocaleString()} tokens
+                    {usageDetailsOpen
+                      ? ` (Input tokens: ${usage.input_tokens.toLocaleString()} · Output tokens: ${usage.output_tokens.toLocaleString()})`
+                      : null}{" "}
+                    <span className="italic text-slate-400">
+                      (
+                      <button
+                        type="button"
+                        onClick={() => setUsageDetailsOpen((open) => !open)}
+                        className="italic text-sky-400 hover:text-sky-300 hover:underline"
+                      >
+                        {usageDetailsOpen ? "hide details" : "show details"}
+                      </button>
+                      )
+                    </span>
                   </p>
                 ) : null}
                 {timingDisplay ? (
