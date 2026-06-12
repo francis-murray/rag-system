@@ -29,7 +29,7 @@ function computeDurationMs(
   return ms > 0 ? ms : null;
 }
 
-/** Total line and optional step breakdown for the timing footer. */
+/** End-to-end duration and optional step breakdown for the timing footer. */
 function buildTimingDisplay(
   timingsMs: Record<string, number>,
 ): { total: string; steps: string | null } | null {
@@ -69,7 +69,7 @@ function buildTimingDisplay(
   }
 
   return {
-    total: `Total ${formatDurationMs(timingsMs.total)}`,
+    total: formatDurationMs(timingsMs.total),
     steps: steps.length > 0 ? steps.join(" · ") : null,
   };
 }
@@ -177,7 +177,7 @@ export function ChatPanel({
               <div className="mt-4 space-y-1 text-xs text-slate-400">
                 {usage ? (
                   <p>
-                    <span className="font-semibold text-slate-300">Usage:</span> Total{" "}
+                    <span className="font-semibold text-slate-300">Usage:</span>{" "}
                     {usage.total_tokens.toLocaleString()} tokens
                     {usageDetailsOpen
                       ? ` (Input tokens: ${usage.input_tokens.toLocaleString()} · Output tokens: ${usage.output_tokens.toLocaleString()})`
