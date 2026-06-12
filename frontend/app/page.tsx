@@ -474,6 +474,7 @@ export default function Home() {
         streamedAnswer={streamState.streamedAnswer}
         progressMessages={streamState.progressMessages}
         usage={streamState.usage}
+        timingsMs={streamState.timingsMs}
         input={input}
         onInputChange={setInput}
         onSubmit={handleSubmit}

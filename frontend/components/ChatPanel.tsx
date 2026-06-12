@@ -1,7 +1,78 @@
 "use client";
 
-import type { FormEvent } from "react";
+import { useEffect, useState, type FormEvent } from "react";
 import type { CitedChunk, LlmUsage, QueryResponse } from "@/lib/types";
+
+/** Format a duration for display: milliseconds below 1s, otherwise seconds with one decimal. */
+function formatDurationMs(ms: number): string {
+  if (ms >= 1000) {
+    return `${(ms / 1000).toFixed(1)}s`;
+  }
+  return `${ms}ms`;
+}
+
+/**
+ * Elapsed milliseconds between two cumulative stream timestamps from `timings_ms`.
+ * Returns null when either key is missing or the difference is not positive.
+ */
+function computeDurationMs(
+  timingsMs: Record<string, number>,
+  startKey: string,
+  endKey: string,
+): number | null {
+  const startMs = timingsMs[startKey];
+  const endMs = timingsMs[endKey];
+  if (startMs == null || endMs == null) {
+    return null;
+  }
+  const ms = endMs - startMs;
+  return ms > 0 ? ms : null;
+}
+
+/** Total line and optional step breakdown for the timing footer. */
+function buildTimingDisplay(
+  timingsMs: Record<string, number>,
+): { total: string; steps: string | null } | null {
+  const steps: string[] = [];
+
+  // Vector search: from retrieval start until rerank begins (or until total if rerank never ran).
+  const retrieval =
+    computeDurationMs(timingsMs, "retrieval", "rerank") ??
+    computeDurationMs(timingsMs, "retrieval", "total");
+  if (retrieval != null) {
+    steps.push(`Retrieval ${formatDurationMs(retrieval)}`);
+  }
+
+  // Cross-encoder rerank + top-k selection: from rerank start until inference (or total if LLM skipped).
+  const rerankEndMs = timingsMs.inference ?? timingsMs.total;
+  if (timingsMs.rerank != null && rerankEndMs != null) {
+    const rerankMs = rerankEndMs - timingsMs.rerank;
+    if (rerankMs > 0) {
+      steps.push(`Rerank ${formatDurationMs(rerankMs)}`);
+    }
+  }
+
+  // LLM until first visible answer text (first delta).
+  const generate = computeDurationMs(timingsMs, "inference", "first_token_ms");
+  if (generate != null) {
+    steps.push(`Generate ${formatDurationMs(generate)}`);
+  }
+
+  // Remaining answer text streamed after the first delta.
+  const stream = computeDurationMs(timingsMs, "first_token_ms", "total");
+  if (stream != null) {
+    steps.push(`Stream ${formatDurationMs(stream)}`);
+  }
+
+  if (timingsMs.total == null) {
+    return steps.length > 0 ? { total: steps.join(" · "), steps: null } : null;
+  }
+
+  return {
+    total: `Total ${formatDurationMs(timingsMs.total)}`,
+    steps: steps.length > 0 ? steps.join(" · ") : null,
+  };
+}
 
 type ChatPanelProps = {
   title: string;
@@ -12,6 +83,7 @@ type ChatPanelProps = {
   streamedAnswer: string;
   progressMessages: string[];
   usage: LlmUsage | null;
+  timingsMs: Record<string, number> | null;
   input: string;
   onInputChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -27,11 +99,19 @@ export function ChatPanel({
   streamedAnswer,
   progressMessages,
   usage,
+  timingsMs,
   input,
   onInputChange,
   onSubmit,
   onCitationClick,
 }: ChatPanelProps) {
+  const timingDisplay = timingsMs ? buildTimingDisplay(timingsMs) : null;
+  const [timingDetailsOpen, setTimingDetailsOpen] = useState(false);
+
+  useEffect(() => {
+    setTimingDetailsOpen(false);
+  }, [timingDisplay?.total]);
+
   return (
     <section className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
       <h2 className="mb-3 text-sm font-semibold text-slate-200">{title}</h2>
@@ -88,12 +168,39 @@ export function ChatPanel({
               </div>
             ) : null}
 
-            {usage ? (
-              <p className="mt-4 text-xs text-slate-400">
-                Usage: Input tokens: {usage.input_tokens.toLocaleString()} · Output tokens:{" "}
-                {usage.output_tokens.toLocaleString()} · Total tokens:{" "}
-                {usage.total_tokens.toLocaleString()}
-              </p>
+            {usage || timingsMs?.total != null ? (
+              <div className="mt-4 space-y-1 text-xs text-slate-400">
+                {usage ? (
+                  <p>
+                    <span className="font-semibold text-slate-300">Usage:</span> Input tokens:{" "}
+                    {usage.input_tokens.toLocaleString()} · Output tokens:{" "}
+                    {usage.output_tokens.toLocaleString()} · Total tokens:{" "}
+                    {usage.total_tokens.toLocaleString()}
+                  </p>
+                ) : null}
+                {timingDisplay ? (
+                  <p>
+                    <span className="font-semibold text-slate-300">Timing:</span>{" "}
+                    {timingDisplay.total}
+                    {timingDisplay.steps ? (
+                      <>
+                        {timingDetailsOpen ? ` (${timingDisplay.steps})` : null}{" "}
+                        <span className="italic text-slate-400">
+                          (
+                          <button
+                            type="button"
+                            onClick={() => setTimingDetailsOpen((open) => !open)}
+                            className="italic text-sky-400 hover:text-sky-300 hover:underline"
+                          >
+                            {timingDetailsOpen ? "hide details" : "show details"}
+                          </button>
+                          )
+                        </span>
+                      </>
+                    ) : null}
+                  </p>
+                ) : null}
+              </div>
             ) : null}
           </article>
         ) : !isLoading && !lastQuestion ? (

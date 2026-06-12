@@ -473,7 +473,7 @@ frontend/
     FileExplorerPanel.tsx                  # Left column: document list + upload
     DocumentViewer.tsx                     # Center column: PDF viewer shell
     PdfCanvas.tsx                          # react-pdf canvas (client-only)
-    ChatPanel.tsx                          # Right column: streaming chat, clickable citations, token usage footer
+    ChatPanel.tsx                          # Right column: streaming chat, clickable citations, usage and timing footers
   lib/                                     # Frontend config + shared types
 data/
   pdf_documents/                           # Add source PDFs here
