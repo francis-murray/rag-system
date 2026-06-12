@@ -189,6 +189,7 @@ async def query(
     return QueryResponse(
         answer=rag_results.answer_with_citations.answer,
         cited_chunks=rag_results.cited_chunks,
+        usage=rag_results.usage,
     )
 
 
@@ -208,6 +209,7 @@ async def query_stream(
         request_id = str(uuid4())
         sequence = 0
         final_payload: QueryResponse | None = None
+        final_usage = None
         final_error: Exception | None = None
         timings_ms: dict[str, int] = {}
         started_at = perf_counter()
@@ -262,7 +264,7 @@ async def query_stream(
         )
 
         def _worker() -> None:
-            nonlocal final_payload, final_error, timings_ms
+            nonlocal final_payload, final_usage, final_error, timings_ms
             try:
                 rag_results = run_rag_query(
                     query=body.query,
@@ -276,7 +278,9 @@ async def query_stream(
                 final_payload = QueryResponse(
                     answer=rag_results.answer_with_citations.answer,
                     cited_chunks=rag_results.cited_chunks,
+                    usage=rag_results.usage,
                 )
+                final_usage = rag_results.usage
                 timings_ms["total"] = int((perf_counter() - started_at) * 1000)
             except Exception as exc:  # pragma: no cover
                 final_error = exc
@@ -336,6 +340,7 @@ async def query_stream(
                     timestamp_ms=_timestamp_ms(),
                     data=final_payload,
                     timings_ms=timings_ms,
+                    usage=final_usage,
                 ).model_dump()
             )
             + "\n"

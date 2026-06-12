@@ -13,9 +13,18 @@ export type CitationTarget = {
   nonce: number
 }
 
+export type LlmUsage = {
+  input_tokens: number
+  output_tokens: number
+  total_tokens: number
+  cached_tokens?: number | null
+  reasoning_tokens?: number | null
+}
+
 export type QueryResponse = {
   answer: string
   cited_chunks: CitedChunk[]
+  usage?: LlmUsage | null
 }
 
 export type DocumentItem = {
@@ -59,6 +68,7 @@ export type StreamCompleteEvent = StreamEventBase & {
   type: "complete"
   data: QueryResponse
   timings_ms: Record<string, number>
+  usage?: LlmUsage | null
 }
 
 export type StreamFailedEvent = StreamEventBase & {

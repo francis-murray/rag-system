@@ -2,7 +2,7 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent } from "react";
-import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, QueryResponse, StreamEvent, UploadResponse } from "@/lib/types";
+import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, LlmUsage, QueryResponse, StreamEvent, UploadResponse } from "@/lib/types";
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentViewer } from "@/components/DocumentViewer";
@@ -63,6 +63,7 @@ type StreamState = {
   result: QueryResponse | null;
   error: string;
   timingsMs: Record<string, number> | null;
+  usage: LlmUsage | null;
 };
 
 type StreamAction = { type: "reset" } | { type: "event"; event: StreamEvent };
@@ -75,6 +76,7 @@ const INITIAL_STREAM_STATE: StreamState = {
   result: null,
   error: "",
   timingsMs: null,
+  usage: null,
 };
 
 // Applies one NDJSON stream event to the visible chat state.
@@ -139,6 +141,7 @@ function streamReducer(state: StreamState, action: StreamAction): StreamState {
       result: event.data,
       streamedAnswer: event.data.answer,
       timingsMs: event.timings_ms,
+      usage: event.usage ?? event.data.usage ?? null,
     };
   }
 
@@ -470,6 +473,7 @@ export default function Home() {
         isLoading={isLoading}
         streamedAnswer={streamState.streamedAnswer}
         progressMessages={streamState.progressMessages}
+        usage={streamState.usage}
         input={input}
         onInputChange={setInput}
         onSubmit={handleSubmit}

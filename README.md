@@ -13,7 +13,7 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Versioned prompt configuration
 - FastAPI endpoints for health checks, PDF upload, document listing, document file serving, and RAG queries
 - Next.js API proxy routes for corresponding backend endpoints
-- Next.js frontend with a three-panel layout: document list and upload, PDF viewer with citation navigation, and streaming chat
+- Next.js frontend with a three-panel layout: document list and upload, PDF viewer with citation navigation, streaming chat, and per-answer LLM token usage
 - Interactive command-line query loop
 - Offline RAG evaluation with ragas metrics (faithfulness, factual correctness, retrieval quality)
 - File and console logging
@@ -290,9 +290,18 @@ Response:
       "start_index": 123,
       "content": "Supporting passage text..."
     }
-  ]
+  ],
+  "usage": {
+    "input_tokens": 1005,
+    "output_tokens": 539,
+    "total_tokens": 1544,
+    "cached_tokens": 0,
+    "reasoning_tokens": 320
+  }
 }
 ```
+
+`usage` is `null` when the pipeline skips LLM generation (for example, no indexed documents or rerank confidence below threshold). `cached_tokens` and `reasoning_tokens` are optional breakdown fields from the provider.
 
 Example:
 
@@ -356,7 +365,7 @@ The JSON below is **pretty-printed** so the fields are easy to scan. On the wire
     "delta": "A concise answer"
   }
   ```
-- `**complete**` — final success line: canonical `data` (same shape as `POST /query`) plus `timings_ms` (e.g. first occurrence of each `stage`, `first_token_ms`, `total`).
+- `**complete**` — final success line: canonical `data` (same shape as `POST /query`), `timings_ms` (e.g. first occurrence of each `stage`, `first_token_ms`, `total`), and `usage` (RAG LLM token counts; same shape as `POST /query`, or `null` when generation was skipped).
   ```json
   {
     "type": "complete",
@@ -376,7 +385,14 @@ The JSON below is **pretty-printed** so the fields are easy to scan. On the wire
           "start_index": 123,
           "content": "Supporting passage text..."
         }
-      ]
+      ],
+      "usage": {
+        "input_tokens": 1005,
+        "output_tokens": 539,
+        "total_tokens": 1544,
+        "cached_tokens": 0,
+        "reasoning_tokens": 320
+      }
     },
     "timings_ms": {
       "retrieval": 50,
@@ -384,6 +400,13 @@ The JSON below is **pretty-printed** so the fields are easy to scan. On the wire
       "inference": 200,
       "first_token_ms": 350,
       "total": 900
+    },
+    "usage": {
+      "input_tokens": 1005,
+      "output_tokens": 539,
+      "total_tokens": 1544,
+      "cached_tokens": 0,
+      "reasoning_tokens": 320
     }
   }
   ```
@@ -424,7 +447,7 @@ curl -N -X POST http://127.0.0.1:3000/api/query/stream \
 4. A query retrieves the top candidate chunks by vector similarity.
 5. A cross-encoder reranks candidates and selects the top chunks.
 6. The LLM answers using only the selected context.
-7. The response includes inline citations and cited source chunks.
+7. The response includes inline citations, cited source chunks, and optional RAG LLM token usage from the provider.
 
 ## Project Structure
 
@@ -450,7 +473,7 @@ frontend/
     FileExplorerPanel.tsx                  # Left column: document list + upload
     DocumentViewer.tsx                     # Center column: PDF viewer shell
     PdfCanvas.tsx                          # react-pdf canvas (client-only)
-    ChatPanel.tsx                          # Right column: streaming chat + clickable citations
+    ChatPanel.tsx                          # Right column: streaming chat, clickable citations, token usage footer
   lib/                                     # Frontend config + shared types
 data/
   pdf_documents/                           # Add source PDFs here

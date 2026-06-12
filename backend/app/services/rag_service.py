@@ -16,6 +16,7 @@ from langchain_core.embeddings import Embeddings
 from langchain_openai import OpenAIEmbeddings
 from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
+from openai.types.responses.response_usage import ResponseUsage
 from pydantic import BaseModel, Field
 from sentence_transformers import CrossEncoder
 
@@ -26,6 +27,7 @@ from backend.app.schemas import (
     ChunkWithMetadata,
     CitedChunk,
     DocumentItem,
+    LlmUsage,
     StreamProgressStage,
 )
 
@@ -46,8 +48,8 @@ class AnswerWithCitations(BaseModel):
 class RagQueryResult(BaseModel):
     answer_with_citations: AnswerWithCitations
     cited_chunks: list[CitedChunk]
-    
-    top_k_chunks: list[ChunkWithMetadata] # for eval purposes
+    top_k_chunks: list[ChunkWithMetadata]  # for eval purposes
+    usage: LlmUsage | None = None
 
 
 ProgressCallback = Callable[[StreamProgressStage, str], None]
@@ -235,7 +237,7 @@ def run_rag_query(
     logger.debug("Context text passed to LLM:\n%s", context_text)
 
     prompt = load_prompt(settings.prompt.name)
-    structured = generate_answer(
+    structured, usage = generate_answer(
         query,
         context_text,
         model=settings.models.rag,
@@ -258,9 +260,23 @@ def run_rag_query(
     cited_chunks = get_cited_chunks(citation_map, cited_indices, index_mapping)
 
     return RagQueryResult(
-        answer_with_citations=structured, 
+        answer_with_citations=structured,
         cited_chunks=cited_chunks,
-        top_k_chunks=top_k_chunks
+        top_k_chunks=top_k_chunks,
+        usage=usage,
+    )
+
+
+def llm_usage_from_response_usage(usage: ResponseUsage | None) -> LlmUsage | None:
+    """Map OpenAI Responses API usage into the stable API schema."""
+    if usage is None:
+        return None
+    return LlmUsage(
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        total_tokens=usage.total_tokens,
+        cached_tokens=usage.input_tokens_details.cached_tokens,
+        reasoning_tokens=usage.output_tokens_details.reasoning_tokens,
     )
 
 
@@ -466,7 +482,7 @@ def generate_answer(
     prompt: Prompt,
     on_progress: ProgressCallback | None = None,
     on_delta: Callable[[str], None] | None = None,
-) -> AnswerWithCitations:
+) -> tuple[AnswerWithCitations, LlmUsage | None]:
     """Ask the LLM to answer the question using only the provided context."""
     system_msg, user_msg = prompt.render(query=query, context_text=context_text)
 
@@ -477,7 +493,7 @@ def generate_answer(
 
     if on_delta is not None:
         logger.info("Starting LLM stream request (model=%s)...", model)
-        answer_text = generate_answer_streaming(
+        answer_text, usage = generate_answer_streaming(
             client=client,
             model=model,
             system_msg=system_msg,
@@ -491,7 +507,7 @@ def generate_answer(
             int(match.group(1))
             for match in CITATION_MARKER_PATTERN.finditer(answer_text)
         ]
-        return AnswerWithCitations(answer=answer_text, citations=citations)
+        return AnswerWithCitations(answer=answer_text, citations=citations), usage
 
     logger.info("Starting LLM request (model=%s)...", model)
     response = client.responses.parse(
@@ -505,7 +521,8 @@ def generate_answer(
     parsed = response.output_parsed
     if parsed is None:
         raise RuntimeError("Model returned no structured output.")
-    return parsed
+
+    return parsed, llm_usage_from_response_usage(response.usage)
 
 
 def generate_answer_streaming(
@@ -515,7 +532,7 @@ def generate_answer_streaming(
     user_msg: str,
     on_delta: Callable[[str], None],
     on_progress: ProgressCallback | None = None,
-) -> str:
+) -> tuple[str, LlmUsage | None]:
     """Stream answer text deltas from OpenAI and return the full text."""
     chunks: list[str] = []
     with client.responses.stream(
@@ -537,9 +554,10 @@ def generate_answer_streaming(
             on_delta(delta)
 
         # Fail fast if the stream ended with an error state.
-        stream.get_final_response()
+        final = stream.get_final_response()
+        usage = llm_usage_from_response_usage(final.usage)
 
-    return "".join(chunks)
+    return "".join(chunks), usage
 
 
 def collect_cited_indices(answer, structured_citations, citation_map):

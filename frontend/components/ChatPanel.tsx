@@ -1,7 +1,7 @@
 "use client";
 
 import type { FormEvent } from "react";
-import type { CitedChunk, QueryResponse } from "@/lib/types";
+import type { CitedChunk, LlmUsage, QueryResponse } from "@/lib/types";
 
 type ChatPanelProps = {
   title: string;
@@ -11,6 +11,7 @@ type ChatPanelProps = {
   isLoading: boolean;
   streamedAnswer: string;
   progressMessages: string[];
+  usage: LlmUsage | null;
   input: string;
   onInputChange: (value: string) => void;
   onSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -25,6 +26,7 @@ export function ChatPanel({
   isLoading,
   streamedAnswer,
   progressMessages,
+  usage,
   input,
   onInputChange,
   onSubmit,
@@ -84,6 +86,14 @@ export function ChatPanel({
                   ))}
                 </div>
               </div>
+            ) : null}
+
+            {usage ? (
+              <p className="mt-4 text-xs text-slate-400">
+                Usage: Input tokens: {usage.input_tokens.toLocaleString()} · Output tokens:{" "}
+                {usage.output_tokens.toLocaleString()} · Total tokens:{" "}
+                {usage.total_tokens.toLocaleString()}
+              </p>
             ) : null}
           </article>
         ) : !isLoading && !lastQuestion ? (
