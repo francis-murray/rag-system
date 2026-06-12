@@ -21,6 +21,7 @@ from ragas.metrics.collections import (
 )
 
 from backend.app.config.rag_settings import RagSettings, get_rag_settings
+from backend.app.schemas import LlmUsage
 from backend.app.core.config import load_and_validate_env
 from backend.app.core.logging_config import setup_logging
 from backend.app.core.paths import get_project_root
@@ -56,6 +57,16 @@ def resolve_dataset_path(dataset_path: Path) -> Path:
     if dataset_path.is_absolute():
         return dataset_path
     return get_project_root() / dataset_path
+
+
+def format_rag_usage(usage: LlmUsage | None) -> str:
+    """Format RAG LLM token usage for eval logs and CSV output."""
+    if usage is None:
+        return "N/A (generation skipped)"
+    return (
+        f"Total {usage.total_tokens:,} tokens "
+        f"(Input tokens: {usage.input_tokens:,} · Output tokens: {usage.output_tokens:,})"
+    )
 
 
 def load_golden_records(dataset_path: Path) -> list[dict]:
@@ -128,12 +139,9 @@ async def evaluate(
     settings: RagSettings,
 ) -> pd.DataFrame:
     """Run the full RAG evaluation pipeline."""
-    logger.info(
-        "Evaluating RAG pipeline (evaluation model =  %s)...", 
-        settings.models.evaluation
-    )
-
-    logger.info("Initializing ragas metrics with model=%s", args.model)
+    logger.info("RAG generation model: %s", settings.models.rag)
+    logger.info("Ragas evaluation model: %s", args.model)
+    logger.info("Initializing ragas metrics...")
     evaluation_llm = llm_factory(args.model, client=AsyncOpenAI())
 
     factual_correctness_metric = FactualCorrectness(llm=evaluation_llm)
@@ -157,6 +165,9 @@ async def evaluate(
             reranker=reranker,
             settings=settings,
         )
+
+        usage_line = format_rag_usage(rag_results.usage)
+        logger.info("Sample [%d] - RAG usage: %s", samples_run, usage_line)
 
         response = rag_results.answer_with_citations.answer
         response_no_cit = remove_citation_markers(response)
@@ -223,6 +234,7 @@ async def evaluate(
                 "retrieved_contexts": retrieved_contexts,
                 "response_no_cit": response_no_cit,
                 "reference": reference,
+                "rag_usage": usage_line,
                 "context_recall": context_recall.value,
                 "context_precision": context_precision.value,
                 "faithfulness": faithfulness.value,
@@ -247,7 +259,13 @@ def aggregate_scores(
 
     qa_prompt = load_prompt(settings.prompt.name)
     metric_cols = df_scores.drop(
-        columns=["user_input", "retrieved_contexts", "response_no_cit", "reference"]
+        columns=[
+            "user_input",
+            "retrieved_contexts",
+            "response_no_cit",
+            "reference",
+            "rag_usage",
+        ]
     )
     metric_means = metric_cols.mean().rename(lambda col: f"{col}_mean")
     return pd.DataFrame(
