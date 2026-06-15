@@ -85,9 +85,17 @@ RAG models, retrieval parameters, indexing settings, and the prompt name live in
 - `**models**`: `rag`, `embedding`, `reranker`, `evaluation`
 - `**prompt**`: `name` (lookup key in `prompts/registry`)
 - `**retrieval**`: `num_candidates`, `top_k`, `rerank_confidence_threshold`
-- `**index**`: `collection_name`, `chunk_size`, `chunk_overlap`
+- `**index**`: `collection_name`, `docling` (`chunk_size`, `chunk_overlap`, `do_ocr`, `do_table_structure`)
 
 See `backend/app/config/rag.yaml` for the current values.
+
+**Indexing config (Docling HybridChunker):**
+
+- Tokenizer is derived from `models.embedding` at runtime (not a separate YAML key).
+- `chunk_size` — token cap passed to `OpenAITokenizer.max_tokens` (not a character count).
+- `chunk_overlap` — inert; HybridChunker has no overlap concept. Kept for eval CSV continuity only.
+- `do_ocr` — enable for scanned/image PDFs (slower, heavier).
+- `do_table_structure` — enable for table-heavy PDFs (slower).
 
 `backend/app/config/rag_settings.py` loads and validates this file into a typed `RagSettings` model via `get_rag_settings()`. Entry points (API lifespan and the interactive CLI) call `get_rag_settings()` once at startup and pass `RagSettings` through the pipeline—indexing, retrieval, reranking, and generation read from that object instead of hardcoded values.
 
@@ -146,8 +154,8 @@ The frontend calls internal Next.js API routes:
 
 ### Notes
 
-- The first time you run the CLI or API, the app downloads cross-encoder weights (about 80 MB) into your local Hugging Face Hub cache. By default that is `~/.cache/huggingface/hub` on macOS and Linux, and `%USERPROFILE%\.cache\huggingface\hub` on Windows. Set `HF_HUB_CACHE` or `HF_HOME` to use a different location.
-- The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop. Indexing uses a persistent Chroma database under `data/chroma_langchain_db/`; new chunks are **added** for PDFs that are not already represented (stable chunk IDs avoid duplicate embeddings).
+- The first time you run the CLI or API, the app downloads cross-encoder weights (about 80 MB) and Docling layout models on first PDF conversion. By default Hugging Face cache is `~/.cache/huggingface/hub` on macOS and Linux.
+- The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop. Indexing uses a persistent Chroma database under `data/chroma_vector_store/`; new chunks are **added** for PDFs that are not already represented (stable chunk IDs avoid duplicate embeddings).
 - `POST /upload` saves a **PDF** under `data/pdf_documents/` and appends that file’s chunks to the same in-memory vector store used by `/query`, so new uploads are searchable without restarting. Dropping files manually into the folder outside of `/upload` still requires a process restart to index them.
 
 ## Backend API Endpoints
@@ -287,7 +295,14 @@ Response:
       "document_id": "document.pdf",
       "source": "document.pdf",
       "page": 0,
-      "start_index": 123,
+      "locations": [
+        {
+          "page": 0,
+          "boxes": [
+            { "l": 0.20, "t": 0.15, "r": 0.80, "b": 0.17 }
+          ]
+        }
+      ],
       "content": "Supporting passage text..."
     }
   ],
@@ -382,7 +397,14 @@ The JSON below is **pretty-printed** so the fields are easy to scan. On the wire
           "document_id": "document.pdf",
           "source": "document.pdf",
           "page": 0,
-          "start_index": 123,
+          "locations": [
+            {
+              "page": 0,
+              "boxes": [
+                { "l": 0.20, "t": 0.15, "r": 0.80, "b": 0.17 }
+              ]
+            }
+          ],
           "content": "Supporting passage text..."
         }
       ],
@@ -441,13 +463,13 @@ curl -N -X POST http://127.0.0.1:3000/api/query/stream \
 
 ## How It Works
 
-1. PDFs are loaded from `data/pdf_documents/` (on API or CLI startup for the full folder, or immediately after each successful `POST /upload`).
-2. Pages are split into overlapping text chunks.
-3. Chunks are embedded and stored in (or merged into) the persistent vector database; existing chunk IDs are skipped so re-runs do not duplicate work.
+1. PDFs are converted with **Docling** and chunked with **HybridChunker** (token budget aligned to the embedding model tokenizer).
+2. Each chunk stores multi-page highlight geometry: normalized bounding boxes (0–1, top-left origin, y-down) derived from Docling provenance and page dimensions.
+3. Chunks are embedded and stored in (or merged into) the persistent vector database; existing chunk IDs are skipped so re-runs do not duplicate work. Geometry is JSON-serialized in Chroma metadata and deserialized before reaching the API.
 4. A query retrieves the top candidate chunks by vector similarity.
 5. A cross-encoder reranks candidates and selects the top chunks.
 6. The LLM answers using only the selected context.
-7. The response includes inline citations, cited source chunks, and optional RAG LLM token usage from the provider.
+7. The response includes inline citations, cited source chunks (with `locations` for client-side PDF highlighting), and optional RAG LLM token usage from the provider.
 
 ## Project Structure
 
@@ -462,6 +484,8 @@ backend/
     evals/                                 # Offline ragas evaluation CLI
     prompts/                               # Versioned prompt configuration
     services/                              # Indexing, retrieval, reranking, generation
+      docling_ingest.py                    # Docling PDF conversion + provenance extraction
+      rag_service.py                       # Core RAG pipeline: index, retrieve, rerank, generate
     cli.py                                 # Interactive CLI entry point
     main.py                                # FastAPI app entry point
 frontend/
@@ -472,13 +496,13 @@ frontend/
   components/
     FileExplorerPanel.tsx                  # Left column: document list + upload
     DocumentViewer.tsx                     # Center column: PDF viewer shell
-    PdfCanvas.tsx                          # react-pdf canvas (client-only)
+    PdfCanvas.tsx                          # react-pdf canvas + citation highlight overlays
     ChatPanel.tsx                          # Right column: streaming chat, clickable citations, usage and timing footers
   lib/                                     # Frontend config + shared types
 data/
   pdf_documents/                           # Add source PDFs here
   evals/                                   # Golden dataset + run results
-  chroma_langchain_db/                     # Generated vector DB (local, at runtime)
+  chroma_vector_store/                     # Generated vector DB (local, at runtime)
 logs/
   app.log                                  # Generated application logs
 ```

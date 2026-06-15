@@ -14,5 +14,8 @@ retrieval:
 
 index:
   collection_name: documents_collection
-  chunk_size: 700
-  chunk_overlap: 120
+  docling:
+    chunk_size: 400    # token cap for HybridChunker (OpenAITokenizer.max_tokens)
+    chunk_overlap: 0   # unused by HybridChunker; recorded in eval CSV only
+    do_ocr: false              # enable for scanned/image PDFs (slower, heavier)
+    do_table_structure: false  # enable for table-heavy PDFs (slower)

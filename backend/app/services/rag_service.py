@@ -10,11 +10,9 @@ from typing import Callable
 
 import numpy as np
 from langchain_chroma import Chroma
-from langchain_community.document_loaders import PyPDFLoader
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
 from langchain_openai import OpenAIEmbeddings
-from langchain_text_splitters import RecursiveCharacterTextSplitter
 from openai import OpenAI
 from openai.types.responses.response_usage import ResponseUsage
 from pydantic import BaseModel, Field
@@ -30,6 +28,7 @@ from backend.app.schemas import (
     LlmUsage,
     StreamProgressStage,
 )
+from backend.app.services.docling_ingest import locations_from_metadata, pdf_to_documents
 
 logger = logging.getLogger(__name__)
 
@@ -120,7 +119,7 @@ def build_index(file_paths: list[str], settings: RagSettings) -> Chroma:
     vector_store = create_or_load_vectorstore(
         collection_name=settings.index.collection_name,
         embedding_function=embeddings,
-        persist_directory=str(get_project_root() / "data" / "chroma_langchain_db"),
+        persist_directory=str(get_project_root() / "data" / "chroma_vector_store"),
     )
 
     # add documents (if any) to vector store
@@ -202,7 +201,7 @@ def run_rag_query(
         details = "\n".join(
             f"Rank {i} | doc_id={chunk.document_id}\n"
             f"source={chunk.source} page={chunk.page + 1} "
-            f"start_index={chunk.start_index}\n"
+            f"locations={len(chunk.locations)} page(s)\n"
             f"content=\n{chunk.content}\n"
             for i, chunk in enumerate(top_k_chunks, start=1)
         )
@@ -280,37 +279,6 @@ def llm_usage_from_response_usage(usage: ResponseUsage | None) -> LlmUsage | Non
     )
 
 
-def load_pdf(file_path: str) -> list[Document]:
-    """Load a PDF as one LangChain ``Document`` per page.
-
-    ``PyPDFLoader`` yields page-ordered documents.
-
-    Returns:
-        A list of ``Document`` instances, one per PDF page in order.
-        Each instance has ``page_content`` and ``metadata`` attributes.
-    """
-    logger.info("Loading %s", Path(file_path).name)
-    loader = PyPDFLoader(file_path)
-    pages = loader.load()
-
-    basename = Path(file_path).name
-    for page in pages:
-        page.metadata["source"] = basename
-        page.metadata["document_id"] = basename
-    return pages
-
-
-def split_documents(documents, chunk_size, chunk_overlap, add_start_index):
-    text_splitter = RecursiveCharacterTextSplitter(
-        chunk_size=chunk_size,
-        chunk_overlap=chunk_overlap,
-        add_start_index=add_start_index,
-    )
-    all_splits = text_splitter.split_documents(documents)
-
-    return all_splits
-
-
 def create_or_load_vectorstore(collection_name, embedding_function, persist_directory):
     # Instantiate vector store (loads existing persisted collection if present).
     vector_store = Chroma(
@@ -321,35 +289,14 @@ def create_or_load_vectorstore(collection_name, embedding_function, persist_dire
     return vector_store
 
 
-def split_pdfs_into_chunks(
-    file_paths: list[str], settings: RagSettings
-) -> list[Document]:
-    all_chunks: list[Document] = []
-    for file_path in file_paths:
-        pdf_pages = load_pdf(file_path)
-        logger.info("Number of pages in pdf: %d", len(pdf_pages))
-
-        # Split our documents into chunks (keeps the metadata into each chunk)
-        chunks = split_documents(
-            pdf_pages,
-            chunk_size=settings.index.chunk_size,
-            chunk_overlap=settings.index.chunk_overlap,
-            add_start_index=True,
-        )
-        logger.info("Number of splits in pdf %d", len(chunks))
-        all_chunks.extend(chunks)
-
-    logger.info("Total chunks across all PDFs: %d", len(all_chunks))
-
-    return all_chunks
-
-
 def add_documents_to_vectorstore(
     vector_store: Chroma, file_paths: list[str], settings: RagSettings
 ):
 
-    # Split documents into chunks (keeps the metadata into each chunk)
-    chunks = split_pdfs_into_chunks(file_paths, settings)
+    chunks: list[Document] = []
+    for file_path in file_paths:
+        chunks.extend(pdf_to_documents(file_path, settings))
+    logger.info("Total chunks across all PDFs: %d", len(chunks))
 
     # Build deterministic ids so we can upsert only missing chunks.
     chunk_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
@@ -379,16 +326,10 @@ def deterministic_chunk_id(document: Document):
     metadata = document.metadata or {}
     source = metadata.get("source", "unknown_source")
     page = metadata.get("page", "unknown_page")
-    start_index = metadata.get("start_index", "unknown_start")
-
-    id_seed = f"{source}|{page}|{start_index}"
-    # Keep IDs stable even if metadata is missing or duplicated.
-    if "unknown_" in id_seed:
-        content_hash = hashlib.sha256(
-            document.page_content.encode("utf-8")
-        ).hexdigest()[:16]
-        id_seed = f"{id_seed}|{content_hash}"
-
+    content_hash = hashlib.sha256(
+        document.page_content.encode("utf-8")
+    ).hexdigest()[:16]
+    id_seed = f"{source}|{page}|{content_hash}"
     return hashlib.sha256(id_seed.encode("utf-8")).hexdigest()
 
 
@@ -441,13 +382,14 @@ def get_top_k_chunks(candidate_chunks, sorted_idx, k) -> list[ChunkWithMetadata]
     top_k_chunks: list[ChunkWithMetadata] = []
 
     for idx in sorted_idx[:k]:
+        meta = candidate_chunks[idx].metadata
         top_k_chunks.append(
             ChunkWithMetadata(
                 chunk_id=candidate_chunks[idx].id,
-                document_id=candidate_chunks[idx].metadata["document_id"],
-                source=candidate_chunks[idx].metadata["source"],
-                page=candidate_chunks[idx].metadata["page"],
-                start_index=candidate_chunks[idx].metadata["start_index"],
+                document_id=meta["document_id"],
+                source=meta["source"],
+                page=meta["page"],
+                locations=locations_from_metadata(meta),
                 content=candidate_chunks[idx].page_content,
             )
         )
@@ -466,10 +408,9 @@ def build_context_for_llm(
 
     blocks = []
     for idx, chunk in citation_map.items():
+        page_numbers = ", ".join(str(loc.page + 1) for loc in chunk.locations)
         blocks.append(
-            f"[{idx}] source={chunk.source} "
-            f"page={chunk.page + 1} "
-            f"start_index={chunk.start_index}\n"
+            f"[{idx}] source={chunk.source} pages={page_numbers}\n"
             f"{chunk.content}"
         )
     return citation_map, "\n\n".join(blocks)

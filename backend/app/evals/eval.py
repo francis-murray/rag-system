@@ -278,8 +278,10 @@ def aggregate_scores(
                 "evaluation_model": evaluation_model,
                 "prompt": qa_prompt.name,
                 "prompt_version": qa_prompt.version,
-                "chunk_size": settings.index.chunk_size,
-                "chunk_overlap": settings.index.chunk_overlap,
+                "chunk_size": settings.index.docling.chunk_size,
+                "chunk_overlap": settings.index.docling.chunk_overlap,
+                "do_ocr": settings.index.docling.do_ocr,
+                "do_table_structure": settings.index.docling.do_table_structure,
                 "samples_evaluated": len(df_scores),
                 **metric_means.to_dict(),
             }
