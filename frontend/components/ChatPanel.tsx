@@ -122,6 +122,7 @@ function citationParts(chunk: CitedChunk): { subtitle: string | null; body: stri
 }
 
 type ChatPanelProps = {
+  isDark: boolean;
   title: string;
   error: string;
   lastQuestion: string;
@@ -138,6 +139,7 @@ type ChatPanelProps = {
 };
 
 export function ChatPanel({
+  isDark,
   title,
   error,
   lastQuestion,
@@ -165,8 +167,18 @@ export function ChatPanel({
   }, [timingDisplay?.total]);
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-sky-400/20 bg-slate-900/55 p-3 shadow-[0_10px_30px_rgba(2,6,23,0.35)] backdrop-blur-xl">
-      <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+    <section
+      className={`flex min-h-0 min-w-0 flex-col rounded-2xl border p-3 ${
+        isDark
+          ? "border-sky-400/20 bg-slate-900/55 shadow-[0_10px_30px_rgba(2,6,23,0.35)] backdrop-blur-xl"
+          : "border-slate-300 bg-white shadow-sm"
+      }`}
+    >
+      <h2
+        className={`mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] ${
+          isDark ? "text-slate-300" : "text-slate-600"
+        }`}
+      >
         {title}
       </h2>
       {/* Scrollable conversation area: error, user message, assistant output, and loading state. */}
@@ -180,9 +192,25 @@ export function ChatPanel({
 
         {/* Latest user message shown as the right-aligned "You" bubble. */}
         {lastQuestion ? (
-          <article className="ml-auto max-w-[96%] rounded-2xl border border-sky-400/40 bg-sky-500/20 p-3 shadow-md shadow-sky-500/15">
-            <p className="mb-2 text-xs uppercase tracking-wide text-slate-300">You</p>
-            <p className="whitespace-pre-wrap text-sm leading-5 text-slate-100">
+          <article
+            className={`ml-auto max-w-[96%] rounded-2xl border p-3 ${
+              isDark
+                ? "border-sky-400/40 bg-sky-500/20 shadow-md shadow-sky-500/15"
+                : "border-sky-300 bg-sky-100"
+            }`}
+          >
+            <p
+              className={`mb-2 text-xs uppercase tracking-wide ${
+                isDark ? "text-slate-300" : "text-sky-700"
+              }`}
+            >
+              You
+            </p>
+            <p
+              className={`whitespace-pre-wrap text-sm leading-5 ${
+                isDark ? "text-slate-100" : "text-slate-800"
+              }`}
+            >
               {lastQuestion}
             </p>
           </article>
@@ -190,9 +218,25 @@ export function ChatPanel({
 
         {/* Final assistant result (with optional citations) once the stream completes. */}
         {result ? (
-          <article className="mr-auto max-w-[96%] rounded-2xl border border-slate-500/80 bg-slate-800/80 p-3 shadow-md shadow-slate-950/35">
-            <p className="mb-2 text-xs uppercase tracking-wide text-slate-300">Assistant</p>
-            <p className="whitespace-pre-wrap text-sm leading-5 text-slate-100">
+          <article
+            className={`mr-auto max-w-[96%] rounded-2xl border p-3 ${
+              isDark
+                ? "border-slate-500/80 bg-slate-800/80 shadow-md shadow-slate-950/35"
+                : "border-slate-300 bg-slate-50"
+            }`}
+          >
+            <p
+              className={`mb-2 text-xs uppercase tracking-wide ${
+                isDark ? "text-slate-300" : "text-slate-600"
+              }`}
+            >
+              Assistant
+            </p>
+            <p
+              className={`whitespace-pre-wrap text-sm leading-5 ${
+                isDark ? "text-slate-100" : "text-slate-800"
+              }`}
+            >
               {result.answer}
             </p>
 
@@ -210,22 +254,44 @@ export function ChatPanel({
                         key={citationKey}
                         type="button"
                         onClick={() => onCitationClick(chunk)}
-                        className="w-full rounded-xl border border-slate-600/70 bg-slate-900/55 p-2.5 text-left transition-all duration-200 ease-out hover:border-sky-500/40 hover:bg-slate-900/70 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                        className={`w-full rounded-xl border p-2.5 text-left transition-all duration-200 ease-out focus:outline-none focus:ring-2 focus:ring-sky-500/40 ${
+                          isDark
+                            ? "border-slate-600/70 bg-slate-900/55 hover:border-sky-500/40 hover:bg-slate-900/70"
+                            : "border-slate-300 bg-white hover:border-sky-400 hover:bg-slate-50"
+                        }`}
                       >
-                        <span className="text-xs font-medium text-sky-300">
+                        <span
+                          className={`text-xs font-medium ${isDark ? "text-sky-300" : "text-sky-700"}`}
+                        >
                           [{chunk.citation_index}] {chunk.source} (page{" "}
                           {chunk.page + 1})
                         </span>
-                        <p className="mt-1.5 whitespace-pre-wrap text-xs leading-5 text-slate-300">
+                        <p
+                          className={`mt-1.5 whitespace-pre-wrap text-xs leading-5 ${
+                            isDark ? "text-slate-300" : "text-slate-600"
+                          }`}
+                        >
                           {subtitle ? (
                             <>
-                              <span className="font-medium text-slate-400">{subtitle}</span>
-                              <span className="text-slate-500"> — </span>
+                              <span
+                                className={`font-medium ${
+                                  isDark ? "text-slate-400" : "text-slate-500"
+                                }`}
+                              >
+                                {subtitle}
+                              </span>
+                              <span className={isDark ? "text-slate-500" : "text-slate-400"}>
+                                {" "}
+                                —{" "}
+                              </span>
                             </>
                           ) : null}
                           {preview}
                           {truncated ? (
-                            <span className="text-slate-500"> [...]</span>
+                            <span className={isDark ? "text-slate-500" : "text-slate-400"}>
+                              {" "}
+                              [...]
+                            </span>
                           ) : null}
                         </p>
                       </button>
@@ -284,23 +350,41 @@ export function ChatPanel({
           </article>
         ) : !isLoading && !lastQuestion ? (
           /* First-load empty state before any question is submitted. */
-          <div className="rounded-xl border border-dashed border-slate-600/90 p-5 text-sm text-slate-300">
+          <div
+            className={`rounded-xl border border-dashed p-5 text-sm ${
+              isDark ? "border-slate-600/90 text-slate-300" : "border-slate-300 text-slate-600"
+            }`}
+          >
             To get started, upload one or more PDFs and ask a question about them in the chat box below.
           </div>
         ) : null}
 
         {/* In-progress assistant response while waiting for final result payload. */}
         {isLoading ? (
-          <div className="mr-auto max-w-[96%] rounded-2xl border border-slate-500/80 bg-slate-800/80 p-3 shadow-md shadow-slate-950/35">
-            <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">
+          <div
+            className={`mr-auto max-w-[96%] rounded-2xl border p-3 ${
+              isDark
+                ? "border-slate-500/80 bg-slate-800/80 shadow-md shadow-slate-950/35"
+                : "border-slate-300 bg-slate-50"
+            }`}
+          >
+            <p
+              className={`text-xs font-semibold uppercase tracking-wide ${
+                isDark ? "text-slate-300" : "text-slate-600"
+              }`}
+            >
               Assistant
             </p>
             {streamedAnswer ? (
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-5 text-slate-100">
+              <p
+                className={`mt-2 whitespace-pre-wrap text-sm leading-5 ${
+                  isDark ? "text-slate-100" : "text-slate-800"
+                }`}
+              >
                 {streamedAnswer}
               </p>
             ) : (
-              <div className="mt-1 space-y-1 text-sm text-slate-400">
+              <div className={`mt-1 space-y-1 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
                 {progressMessages.map((message, idx) => (
                   <p key={`${message}-${idx}`}>{message}</p>
                 ))}
@@ -328,7 +412,11 @@ export function ChatPanel({
             value={input}
             onChange={(event) => onInputChange(event.target.value)}
             placeholder="Ask about your documents..."
-            className="min-h-10 min-w-0 flex-1 rounded-xl border border-slate-600 bg-slate-950/70 px-2.5 py-1.5 text-sm text-slate-100 outline-none transition-all duration-200 ease-out focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30"
+            className={`min-h-10 min-w-0 flex-1 rounded-xl border px-2.5 py-1.5 text-sm outline-none transition-all duration-200 ease-out focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30 ${
+              isDark
+                ? "border-slate-600 bg-slate-950/70 text-slate-100"
+                : "border-slate-300 bg-white text-slate-800"
+            }`}
           />
           <button
             type="submit"

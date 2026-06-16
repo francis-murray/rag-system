@@ -6,6 +6,7 @@ import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, LlmUsage, 
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentViewer } from "@/components/DocumentViewer";
+import { ThemeToggle } from "@/components/ThemeToggle";
 
 const INITIAL_LOADING_MESSAGE = "Starting retrieval pipeline...";
 
@@ -33,6 +34,7 @@ function getAvailableCenterWidth(
 }
 
 type ResizeSide = "left" | "right";
+type ThemeMode = "dark" | "light";
 
 function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
@@ -227,6 +229,20 @@ export default function Home() {
   // Updated on each explorer click so the viewer resets to page 1,
   // even when the same document is selected again.
   const [viewerResetNonce, setViewerResetNonce] = useState(0);
+  const [theme, setTheme] = useState<ThemeMode>("dark");
+
+  useEffect(() => {
+    const savedTheme = window.localStorage.getItem("ui-theme");
+    if (savedTheme === "dark" || savedTheme === "light") {
+      setTheme(savedTheme);
+    }
+  }, []);
+
+  useEffect(() => {
+    window.localStorage.setItem("ui-theme", theme);
+    document.documentElement.classList.remove("dark", "light");
+    document.documentElement.classList.add(theme);
+  }, [theme]);
 
   // Widen chat on large displays with a sensible default split; keep laptop defaults on smaller viewports.
   useEffect(() => {
@@ -549,21 +565,44 @@ export default function Home() {
   const layoutStyle = {
     "--desktop-columns": desktopColumns,
   } as CSSProperties;
+  const isDark = theme === "dark";
+
   return (
     <main
       ref={mainRef}
-      className="mx-auto grid h-[100dvh] min-w-0 max-w-full grid-cols-1 gap-2 overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.12),_transparent_45%),linear-gradient(to_bottom,_rgba(15,23,42,0.98),_rgba(2,6,23,0.98))] px-2 pb-2 pt-2 sm:px-3 lg:grid-cols-[var(--desktop-columns)] lg:grid-rows-[auto_1fr] lg:gap-x-1 lg:gap-y-1 lg:overflow-hidden"
+      className={`mx-auto grid h-[100dvh] min-w-0 max-w-full grid-cols-1 gap-2 overflow-x-hidden px-2 pb-2 pt-2 sm:px-3 lg:grid-cols-[var(--desktop-columns)] lg:grid-rows-[auto_1fr] lg:gap-x-1 lg:gap-y-1 lg:overflow-hidden ${
+        isDark
+          ? "bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.12),_transparent_45%),linear-gradient(to_bottom,_rgba(15,23,42,0.98),_rgba(2,6,23,0.98))]"
+          : "bg-slate-100"
+      }`}
       style={layoutStyle}
     >
       {/* Header spans all grid columns on desktop (five tracks including gutters). */}
-      <header className="min-w-0 rounded-2xl border border-sky-400/20 bg-slate-900/65 px-4 py-2.5 shadow-[0_10px_30px_rgba(2,6,23,0.45)] backdrop-blur-xl lg:col-span-5">
-        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-200/90">
-          RAG System
-        </p>
+      <header
+        className={`min-w-0 rounded-2xl border px-4 py-2.5 lg:col-span-5 ${
+          isDark
+            ? "border-sky-400/20 bg-slate-900/65 shadow-[0_10px_30px_rgba(2,6,23,0.45)] backdrop-blur-xl"
+            : "border-slate-300 bg-white shadow-sm"
+        }`}
+      >
+        <div className="flex items-center justify-between gap-3">
+          <p
+            className={`text-[11px] font-semibold uppercase tracking-[0.2em] ${
+              isDark ? "text-sky-200/90" : "text-slate-700"
+            }`}
+          >
+            RAG System
+          </p>
+          <ThemeToggle
+            isDark={isDark}
+            onToggle={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+          />
+        </div>
       </header>
 
       {/* Left column: uploaded document list + upload form. */}
       <FileExplorerPanel
+        isDark={isDark}
         documents={files}
         selectedDocumentId={selectedDocumentId}
         onSelectDocument={handleSelectDocument}
@@ -575,12 +614,15 @@ export default function Home() {
         role="separator"
         aria-label="Resize file explorer"
         onMouseDown={(event) => startResize("left", event)}
-        className="hidden min-h-0 w-1 min-w-1 max-w-1 shrink-0 bg-slate-700 transition duration-200 ease-out hover:bg-slate-500 lg:block lg:cursor-col-resize"
+        className={`hidden min-h-0 w-1 min-w-1 max-w-1 shrink-0 transition duration-200 ease-out lg:block lg:cursor-col-resize ${
+          isDark ? "bg-slate-700 hover:bg-slate-500" : "bg-slate-400 hover:bg-slate-500"
+        }`}
       />
 
       {/* Middle column: document preview panel. */}
       <section className="min-h-0 min-w-0 lg:h-full">
         <DocumentViewer
+          isDark={isDark}
           documentId={selectedDocumentId}
           citationTarget={citationTarget}
           resetNonce={viewerResetNonce}
@@ -591,11 +633,14 @@ export default function Home() {
         role="separator"
         aria-label="Resize chat panel"
         onMouseDown={(event) => startResize("right", event)}
-        className="hidden min-h-0 w-1 min-w-1 max-w-1 shrink-0 bg-slate-700 transition duration-200 ease-out hover:bg-slate-500 lg:block lg:cursor-col-resize"
+        className={`hidden min-h-0 w-1 min-w-1 max-w-1 shrink-0 transition duration-200 ease-out lg:block lg:cursor-col-resize ${
+          isDark ? "bg-slate-700 hover:bg-slate-500" : "bg-slate-400 hover:bg-slate-500"
+        }`}
       />
 
       {/* Right column: chat conversation and message composer. */}
       <ChatPanel
+        isDark={isDark}
         title="Assistant chat"
         error={streamState.error}
         lastQuestion={lastQuestion}
