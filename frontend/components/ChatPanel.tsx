@@ -74,6 +74,53 @@ function buildTimingDisplay(
   };
 }
 
+const CITATION_PREVIEW_WORDS = 20;
+
+/**
+ * Builds a citation preview from the first N words of content.
+ *
+ * @param content Full citation content text.
+ * @param maxWords Maximum number of words to include in the preview.
+ * @returns The preview text and whether the content was truncated.
+ */
+function truncateCitationContent(
+  content: string,
+  maxWords = CITATION_PREVIEW_WORDS,
+): { preview: string; truncated: boolean } {
+  // Trim leading/trailing whitespace, split on any whitespace, and remove empty entries.
+  const words = content.trim().split(/\s+/).filter(Boolean);
+  if (words.length <= maxWords) {
+    return { preview: content, truncated: false };
+  }
+  return {
+    preview: words.slice(0, maxWords).join(" "),
+    truncated: true,
+  };
+}
+
+/**
+ * Splits a cited chunk into a display subtitle and body text.
+ *
+ * @param chunk Cited chunk that may contain heading metadata.
+ * @returns A subtitle from headings (if present) and normalized body text.
+ */
+function citationParts(chunk: CitedChunk): { subtitle: string | null; body: string } {
+  const headings = chunk.headings ?? [];
+  if (headings.length === 0) {
+    return { subtitle: null, body: chunk.content };
+  }
+
+  const subtitle = headings.join(" › ");
+  // Docling contextualize() prepends headings to chunk text, joined by newlines.
+  // Strip that prefix so we can show the subtitle and body separately in the UI.
+  const prefix = headings.join("\n");
+  let body = chunk.content;
+  if (body.startsWith(prefix)) {
+    body = body.slice(prefix.length).replace(/^\n+/, "");
+  }
+  return { subtitle, body };
+}
+
 type ChatPanelProps = {
   title: string;
   error: string;
@@ -151,24 +198,37 @@ export function ChatPanel({
               <div className="mt-4 space-y-2">
                 <h2 className="text-xs font-semibold text-slate-300">Citations</h2>
                 <div className="space-y-2">
-                  {result.cited_chunks.map((chunk) => (
+                  {result.cited_chunks.map((chunk) => {
+                    const citationKey = `${chunk.document_id}-${chunk.citation_index}`;
+                    const { subtitle, body } = citationParts(chunk);
+                    const { preview, truncated } = truncateCitationContent(body);
 
-
-
-
-
-                    <button
-                      type="button"
-                      key={`${chunk.document_id}-${chunk.citation_index}`}
-                      onClick={() => onCitationClick(chunk)}
-                      className="block w-full rounded-lg border border-slate-600/70 bg-slate-900/50 p-3 text-left transition-colors hover:border-sky-400/60 hover:bg-slate-800/60 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
-                    >
-                      <p className="text-xs font-medium text-sky-300">
-                        [{chunk.citation_index}] {chunk.source} (page {chunk.page + 1})
-                      </p>
-                      <p className="mt-1 text-xs text-slate-300">{chunk.content}</p>
-                    </button>
-                  ))}
+                    return (
+                      <button
+                        key={citationKey}
+                        type="button"
+                        onClick={() => onCitationClick(chunk)}
+                        className="w-full rounded-lg border border-slate-600/70 bg-slate-900/50 p-3 text-left transition-colors hover:border-sky-500/40 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                      >
+                        <span className="text-xs font-medium text-sky-300">
+                          [{chunk.citation_index}] {chunk.source} (page{" "}
+                          {chunk.page + 1})
+                        </span>
+                        <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-300">
+                          {subtitle ? (
+                            <>
+                              <span className="font-medium text-slate-400">{subtitle}</span>
+                              <span className="text-slate-500"> — </span>
+                            </>
+                          ) : null}
+                          {preview}
+                          {truncated ? (
+                            <span className="text-slate-500"> [...]</span>
+                          ) : null}
+                        </p>
+                      </button>
+                    );
+                  })}
                 </div>
               </div>
             ) : null}

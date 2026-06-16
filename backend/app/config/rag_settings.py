@@ -24,10 +24,16 @@ class RagRetrieval(BaseModel):
     rerank_confidence_threshold: float
 
 
-class RagIndex(BaseModel):
-    collection_name: str
+class RagDocling(BaseModel):
     chunk_size: int
     chunk_overlap: int
+    do_ocr: bool
+    do_table_structure: bool
+
+
+class RagIndex(BaseModel):
+    collection_name: str
+    docling: RagDocling
 
 
 class RagSettings(BaseModel):

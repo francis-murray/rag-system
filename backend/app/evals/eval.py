@@ -36,6 +36,12 @@ from backend.app.services.rag_service import (
 
 logger = logging.getLogger("backend.app.evals.eval")
 
+# Indexing pipeline labels for evals_aggregate.csv only. Changing these strings does
+# not alter ingestion behavior — update them by hand when docling_ingest changes.
+INGEST_PARSER = "docling"
+INGEST_CHUNKER = "HybridChunker"
+INGEST_TOKENIZER = "tiktoken"
+
 
 def default_dataset_path() -> Path:
     """Return the default path to the golden evaluation dataset."""
@@ -273,14 +279,19 @@ def aggregate_scores(
             {
                 "now": now,
                 "eval_dataset": dataset_name,
-                "rag_model": settings.models.rag,
+                "samples_evaluated": len(df_scores),
+                "parser": INGEST_PARSER,
+                "chunker": INGEST_CHUNKER,
+                "tokenizer": INGEST_TOKENIZER,
+                "chunk_size": settings.index.docling.chunk_size,
+                "chunk_overlap": settings.index.docling.chunk_overlap,
+                "do_ocr": settings.index.docling.do_ocr,
+                "do_table_structure": settings.index.docling.do_table_structure,
                 "embedding_model": settings.models.embedding,
+                "rag_model": settings.models.rag,
                 "evaluation_model": evaluation_model,
                 "prompt": qa_prompt.name,
                 "prompt_version": qa_prompt.version,
-                "chunk_size": settings.index.chunk_size,
-                "chunk_overlap": settings.index.chunk_overlap,
-                "samples_evaluated": len(df_scores),
                 **metric_means.to_dict(),
             }
         ]

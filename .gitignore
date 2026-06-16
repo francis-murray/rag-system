@@ -30,7 +30,7 @@ data/pdf_documents/*
 !data/pdf_documents/.gitkeep 
 data/evals/*
 !data/evals/.gitkeep
-chroma_langchain_db/
+data/chroma_vector_store/
 logs/
 
 

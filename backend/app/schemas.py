@@ -3,15 +3,37 @@ from typing import Literal
 from pydantic import BaseModel, Field
 
 
+class BBoxNorm(BaseModel):
+    """Normalized bounding box (0–1), top-left origin, y-down."""
+
+    l: float = Field(description="Left edge, normalized 0–1.")
+    t: float = Field(description="Top edge, normalized 0–1.")
+    r: float = Field(description="Right edge, normalized 0–1.")
+    b: float = Field(description="Bottom edge, normalized 0–1.")
+
+
+class PageLocation(BaseModel):
+    """Highlight locations on a single page."""
+
+    page: int = Field(description="Zero-based page index.")
+    boxes: list[BBoxNorm] = Field(description="Normalized bounding boxes on this page.")
+
+
 class ChunkWithMetadata(BaseModel):
     """A retrieved document chunk with its source metadata."""
 
     chunk_id: str = Field(description="Unique chunk identifier.")
     document_id: str = Field(description="Unique document (file id) identifier.")
     source: str = Field(description="Source document path.")
-    page: int = Field(description="Zero-based page index.")
-    start_index: int = Field(description="Chunk start offset in page.")
+    page: int = Field(description="Zero-based primary page index (first location page).")
+    locations: list[PageLocation] = Field(
+        description="Multi-page highlight locations with normalized bounding boxes."
+    )
     content: str = Field(description="Chunk text content.")
+    headings: list[str] = Field(
+        default_factory=list,
+        description="Section headings prepended during Docling contextualization.",
+    )
 
 
 class CitedChunk(ChunkWithMetadata):

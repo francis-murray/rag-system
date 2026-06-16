@@ -1,10 +1,23 @@
+export type BBox = {
+  l: number
+  t: number
+  r: number
+  b: number
+}
+
+export type PageLocation = {
+  page: number
+  boxes: BBox[]
+}
+
 export type CitedChunk = {
   chunk_id: string
   document_id: string
   source: string
   page: number
-  start_index: number
+  locations: PageLocation[]
   content: string
+  headings?: string[]
   citation_index: number
 }
 
