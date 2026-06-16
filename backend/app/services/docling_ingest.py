@@ -122,6 +122,7 @@ def pdf_to_documents(file_path: str, settings: RagSettings) -> list[Document]:
             "document_id": basename,
             "page": primary_page,
             "locations_json": json.dumps([loc.model_dump() for loc in locations]),
+            "headings_json": json.dumps(getattr(chunk.meta, "headings", None) or []),
         }
         documents.append(Document(page_content=contextualized_chunk_text, metadata=metadata))
 
@@ -134,3 +135,10 @@ def locations_from_metadata(metadata: dict) -> list[PageLocation]:
     raw = metadata.get("locations_json", "[]")
     parsed = json.loads(raw) if isinstance(raw, str) else raw
     return [PageLocation(**item) for item in parsed]
+
+
+def headings_from_metadata(metadata: dict) -> list[str]:
+    """Deserialize ``headings_json`` from Chroma metadata."""
+    raw = metadata.get("headings_json", "[]")
+    parsed = json.loads(raw) if isinstance(raw, str) else raw
+    return parsed if isinstance(parsed, list) else []

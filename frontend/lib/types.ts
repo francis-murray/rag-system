@@ -17,6 +17,7 @@ export type CitedChunk = {
   page: number
   locations: PageLocation[]
   content: string
+  headings?: string[]
   citation_index: number
 }
 

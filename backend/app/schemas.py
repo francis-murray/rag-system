@@ -30,6 +30,10 @@ class ChunkWithMetadata(BaseModel):
         description="Multi-page highlight locations with normalized bounding boxes."
     )
     content: str = Field(description="Chunk text content.")
+    headings: list[str] = Field(
+        default_factory=list,
+        description="Section headings prepended during Docling contextualization.",
+    )
 
 
 class CitedChunk(ChunkWithMetadata):

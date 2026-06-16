@@ -28,7 +28,11 @@ from backend.app.schemas import (
     LlmUsage,
     StreamProgressStage,
 )
-from backend.app.services.docling_ingest import locations_from_metadata, pdf_to_documents
+from backend.app.services.docling_ingest import (
+    headings_from_metadata,
+    locations_from_metadata,
+    pdf_to_documents,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -391,6 +395,7 @@ def get_top_k_chunks(candidate_chunks, sorted_idx, k) -> list[ChunkWithMetadata]
                 page=meta["page"],
                 locations=locations_from_metadata(meta),
                 content=candidate_chunks[idx].page_content,
+                headings=headings_from_metadata(meta),
             )
         )
     return top_k_chunks
