@@ -78,7 +78,7 @@ export default function PdfCanvas({ fileUrl, citationTarget, resetNonce }: PdfCa
   return (
     <div
       ref={containerRef}
-      className="min-h-0 flex-1 overflow-y-auto rounded-lg border border-slate-700/60 bg-slate-950/40"
+      className="min-h-0 flex-1 overflow-y-auto"
     >
       {error ? (
         <div className="flex h-full items-center justify-center p-4 text-sm text-rose-300">
@@ -104,11 +104,11 @@ export default function PdfCanvas({ fileUrl, citationTarget, resetNonce }: PdfCa
                 ref={(divElement) => {
                   pageRefs.current[index] = divElement;
                 }}
-                className="relative mx-auto mb-4 w-fit"
+                className="relative mx-auto mb-4 w-fit bg-white shadow-sm"
               >
                 <Page
                   pageNumber={index + 1}
-                  width={width ? width - 24 : undefined}
+                  width={width || undefined}
                   renderTextLayer
                   renderAnnotationLayer
                   onRenderSuccess={() => scrollToCitationIfPending(index + 1)}

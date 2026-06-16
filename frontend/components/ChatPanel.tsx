@@ -165,22 +165,24 @@ export function ChatPanel({
   }, [timingDisplay?.total]);
 
   return (
-    <section className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-slate-700/60 bg-slate-900/40 p-4">
-      <h2 className="mb-3 text-sm font-semibold text-slate-200">{title}</h2>
+    <section className="flex min-h-0 min-w-0 flex-col rounded-2xl border border-sky-400/20 bg-slate-900/55 p-3 shadow-[0_10px_30px_rgba(2,6,23,0.35)] backdrop-blur-xl">
+      <h2 className="mb-2 text-[11px] font-semibold uppercase tracking-[0.18em] text-slate-300">
+        {title}
+      </h2>
       {/* Scrollable conversation area: error, user message, assistant output, and loading state. */}
-      <div className="min-h-0 flex-1 space-y-4 overflow-y-auto pr-1">
+      <div className="min-h-0 flex-1 space-y-3 overflow-y-auto pr-1">
         {/* Global request/stream error display. */}
         {error ? (
-          <section className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-3 text-sm text-rose-100">
+          <section className="rounded-xl border border-rose-500/40 bg-rose-500/10 p-2.5 text-sm text-rose-100">
             <p>{error}</p>
           </section>
         ) : null}
 
         {/* Latest user message shown as the right-aligned "You" bubble. */}
         {lastQuestion ? (
-          <article className="ml-auto max-w-[95%] rounded-2xl border border-sky-500/40 bg-sky-500/20 p-4 shadow-lg">
+          <article className="ml-auto max-w-[96%] rounded-2xl border border-sky-400/40 bg-sky-500/20 p-3 shadow-md shadow-sky-500/15">
             <p className="mb-2 text-xs uppercase tracking-wide text-slate-300">You</p>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-100">
+            <p className="whitespace-pre-wrap text-sm leading-5 text-slate-100">
               {lastQuestion}
             </p>
           </article>
@@ -188,14 +190,14 @@ export function ChatPanel({
 
         {/* Final assistant result (with optional citations) once the stream completes. */}
         {result ? (
-          <article className="mr-auto max-w-[95%] rounded-2xl border border-slate-600 bg-slate-800/80 p-4 shadow-lg">
+          <article className="mr-auto max-w-[96%] rounded-2xl border border-slate-500/80 bg-slate-800/80 p-3 shadow-md shadow-slate-950/35">
             <p className="mb-2 text-xs uppercase tracking-wide text-slate-300">Assistant</p>
-            <p className="whitespace-pre-wrap text-sm leading-6 text-slate-100">
+            <p className="whitespace-pre-wrap text-sm leading-5 text-slate-100">
               {result.answer}
             </p>
 
             {result.cited_chunks.length > 0 ? (
-              <div className="mt-4 space-y-2">
+              <div className="mt-3.5 space-y-2">
                 <h2 className="text-xs font-semibold text-slate-300">Citations</h2>
                 <div className="space-y-2">
                   {result.cited_chunks.map((chunk) => {
@@ -208,13 +210,13 @@ export function ChatPanel({
                         key={citationKey}
                         type="button"
                         onClick={() => onCitationClick(chunk)}
-                        className="w-full rounded-lg border border-slate-600/70 bg-slate-900/50 p-3 text-left transition-colors hover:border-sky-500/40 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
+                        className="w-full rounded-xl border border-slate-600/70 bg-slate-900/55 p-2.5 text-left transition-all duration-200 ease-out hover:border-sky-500/40 hover:bg-slate-900/70 focus:outline-none focus:ring-2 focus:ring-sky-500/40"
                       >
                         <span className="text-xs font-medium text-sky-300">
                           [{chunk.citation_index}] {chunk.source} (page{" "}
                           {chunk.page + 1})
                         </span>
-                        <p className="mt-2 whitespace-pre-wrap text-xs leading-5 text-slate-300">
+                        <p className="mt-1.5 whitespace-pre-wrap text-xs leading-5 text-slate-300">
                           {subtitle ? (
                             <>
                               <span className="font-medium text-slate-400">{subtitle}</span>
@@ -234,7 +236,7 @@ export function ChatPanel({
             ) : null}
 
             {usage || timingsMs?.total != null ? (
-              <div className="mt-4 space-y-1 text-xs text-slate-400">
+              <div className="mt-3 space-y-1 text-xs text-slate-400">
                 {usage ? (
                   <p>
                     <span className="font-semibold text-slate-300">Usage:</span>{" "}
@@ -282,19 +284,19 @@ export function ChatPanel({
           </article>
         ) : !isLoading && !lastQuestion ? (
           /* First-load empty state before any question is submitted. */
-          <div className="rounded-xl border border-dashed border-slate-600 p-6 text-sm text-slate-300">
+          <div className="rounded-xl border border-dashed border-slate-600/90 p-5 text-sm text-slate-300">
             To get started, upload one or more PDFs and ask a question about them in the chat box below.
           </div>
         ) : null}
 
         {/* In-progress assistant response while waiting for final result payload. */}
         {isLoading ? (
-          <div className="mr-auto max-w-[95%] rounded-2xl border border-slate-600 bg-slate-800/80 p-4">
+          <div className="mr-auto max-w-[96%] rounded-2xl border border-slate-500/80 bg-slate-800/80 p-3 shadow-md shadow-slate-950/35">
             <p className="text-xs font-semibold uppercase tracking-wide text-slate-300">
               Assistant
             </p>
             {streamedAnswer ? (
-              <p className="mt-2 whitespace-pre-wrap text-sm leading-6 text-slate-100">
+              <p className="mt-2 whitespace-pre-wrap text-sm leading-5 text-slate-100">
                 {streamedAnswer}
               </p>
             ) : (
@@ -312,12 +314,12 @@ export function ChatPanel({
       <form
         onSubmit={onSubmit}
         autoComplete="off"
-        className="mt-4 rounded-2xl border border-slate-700/60 bg-slate-900/85 p-3 backdrop-blur"
+        className="mt-3"
       >
         <label htmlFor="question-input" className="sr-only">
           Ask a question
         </label>
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 items-center gap-1.5">
           <input
             id="question-input"
             name="question-input"
@@ -326,12 +328,12 @@ export function ChatPanel({
             value={input}
             onChange={(event) => onInputChange(event.target.value)}
             placeholder="Ask about your documents..."
-            className="min-h-11 min-w-0 flex-1 rounded-xl border border-slate-600 bg-slate-950/70 px-3 py-2 text-sm text-slate-100 outline-none focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30"
+            className="min-h-10 min-w-0 flex-1 rounded-xl border border-slate-600 bg-slate-950/70 px-2.5 py-1.5 text-sm text-slate-100 outline-none transition-all duration-200 ease-out focus:border-sky-400 focus:ring-2 focus:ring-sky-500/30"
           />
           <button
             type="submit"
             disabled={isLoading || input.trim().length === 0}
-            className="shrink-0 whitespace-nowrap rounded-xl bg-sky-500 px-4 py-2 text-sm font-semibold text-sky-950 transition hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
+            className="shrink-0 whitespace-nowrap rounded-xl bg-sky-500 px-3.5 py-1.5 text-sm font-semibold text-sky-950 transition-all duration-200 ease-out hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isLoading ? "Sending..." : "Send"}
           </button>

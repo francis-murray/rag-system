@@ -6,16 +6,31 @@ import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, LlmUsage, 
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentViewer } from "@/components/DocumentViewer";
-  
+
 const INITIAL_LOADING_MESSAGE = "Starting retrieval pipeline...";
 
-// Desktop layout: fixed side panels, a bounded flexible viewer, and narrow drag gutters.
-const HANDLE_WIDTH = 10;
+// Desktop layout: resizable explorer, preview, and chat columns with drag gutters.
+const HANDLE_WIDTH = 4;
 const MIN_LEFT_WIDTH = 220;
 const MIN_RIGHT_WIDTH = 220;
 const MIN_CENTER_WIDTH = 260;
-const DEFAULT_LEFT_WIDTH = 320;
-const DEFAULT_RIGHT_WIDTH = 320;
+const DEFAULT_LEFT_WIDTH = 272;
+const LAPTOP_RIGHT_WIDTH = 420;
+const WIDE_RIGHT_WIDTH = 560;
+const WIDE_VIEWPORT_MIN = 1536;
+const DEFAULT_WIDE_CENTER_WIDTH = 760;
+// Approximate main horizontal padding and column gaps for wide-layout presets.
+const LAYOUT_HORIZONTAL_OVERHEAD = 48;
+
+/** Remaining width for the center panel after side panels, gutters, and grid gaps. */
+function getAvailableCenterWidth(
+  contentWidth: number,
+  columnGap: number,
+  leftWidth: number,
+  rightWidth: number,
+): number {
+  return contentWidth - leftWidth - rightWidth - HANDLE_WIDTH * 2 - columnGap * 4;
+}
 
 type ResizeSide = "left" | "right";
 
@@ -23,6 +38,7 @@ function clamp(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), max);
 }
 
+/** Grid content box and column gap for drag-resize math on the main layout element. */
 function getGridBounds(element: HTMLElement) {
   const rect = element.getBoundingClientRect();
   const style = getComputedStyle(element);
@@ -38,19 +54,44 @@ function getGridBounds(element: HTMLElement) {
   };
 }
 
-// Keep enough room for the opposite side panel, both gutters, and the viewer's minimum width.
+// Keep enough room for the opposite side panel, both gutters, and the center panel minimum width.
 function getMaxSideWidth(
   contentWidth: number,
   columnGap: number,
-  oppositeSideWidth: number
+  oppositeSideWidth: number,
+  centerReserve: number
 ): number {
   return (
     contentWidth -
     oppositeSideWidth -
     HANDLE_WIDTH * 2 -
-    MIN_CENTER_WIDTH -
+    centerReserve -
     columnGap * 4
   );
+}
+
+/** Initial center and chat widths for viewports at or above `WIDE_VIEWPORT_MIN`. */
+function getWideLayoutWidths(viewportWidth: number) {
+  const available =
+    viewportWidth - DEFAULT_LEFT_WIDTH - HANDLE_WIDTH * 2 - LAYOUT_HORIZONTAL_OVERHEAD;
+  const maxCenterWidth = Math.max(MIN_CENTER_WIDTH, available - MIN_RIGHT_WIDTH);
+  const centerWidth = clamp(
+    Math.min(DEFAULT_WIDE_CENTER_WIDTH, available - WIDE_RIGHT_WIDTH),
+    MIN_CENTER_WIDTH,
+    maxCenterWidth,
+  );
+  const rightWidth = available - centerWidth;
+  return { centerWidth, rightWidth };
+}
+
+/** Picks laptop vs wide layout mode and the matching initial panel widths. */
+function getResponsiveLayout(viewportWidth: number) {
+  const isWide = viewportWidth >= WIDE_VIEWPORT_MIN;
+  if (!isWide) {
+    return { isWide, rightWidth: LAPTOP_RIGHT_WIDTH, centerWidth: null as number | null };
+  }
+  const { centerWidth, rightWidth } = getWideLayoutWidths(viewportWidth);
+  return { isWide, rightWidth, centerWidth };
 }
 
 // Everything the UI needs while an answer streams in.
@@ -173,9 +214,11 @@ export default function Home() {
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [files, setFiles] = useState<DocumentItem[]>([]);
-  // Resizable 3-column layout on desktop (explorer | viewer | chat); widths reset on refresh.
+  // Resizable 3-column layout on desktop (explorer | preview | chat); widths reset on refresh.
   const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH);
-  const [rightWidth, setRightWidth] = useState(DEFAULT_RIGHT_WIDTH);
+  const [rightWidth, setRightWidth] = useState(LAPTOP_RIGHT_WIDTH);
+  const [wideCenterWidth, setWideCenterWidth] = useState<number | null>(null);
+  const [isWideLayout, setIsWideLayout] = useState(false);
   const mainRef = useRef<HTMLElement | null>(null);
 
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
@@ -184,6 +227,32 @@ export default function Home() {
   // Updated on each explorer click so the viewer resets to page 1,
   // even when the same document is selected again.
   const [viewerResetNonce, setViewerResetNonce] = useState(0);
+
+  // Widen chat on large displays with a sensible default split; keep laptop defaults on smaller viewports.
+  useEffect(() => {
+    let wasWide = window.innerWidth >= WIDE_VIEWPORT_MIN;
+
+    function applyLayoutPreset() {
+      const { isWide, rightWidth: presetRightWidth, centerWidth } = getResponsiveLayout(
+        window.innerWidth
+      );
+      setIsWideLayout(isWide);
+      setWideCenterWidth(centerWidth);
+      setRightWidth(presetRightWidth);
+    }
+
+    applyLayoutPreset();
+
+    function onResize() {
+      const isWide = window.innerWidth >= WIDE_VIEWPORT_MIN;
+      if (isWide === wasWide) return;
+      wasWide = isWide;
+      applyLayoutPreset();
+    }
+
+    window.addEventListener("resize", onResize);
+    return () => window.removeEventListener("resize", onResize);
+  }, []);
 
   /**
    * Fetches the current list of uploaded documents from the backend.
@@ -248,7 +317,7 @@ export default function Home() {
     });
   }
 
-  // Desktop drag gutters resize the fixed side panels while preserving the viewer minimum.
+  // Desktop drag gutters resize columns while preserving each panel's minimum width.
   function startResize(side: ResizeSide, event: ReactMouseEvent<HTMLDivElement>) {
     event.preventDefault();
     const onMove = (moveEvent: MouseEvent) => {
@@ -258,10 +327,37 @@ export default function Home() {
       const bounds = getGridBounds(main);
 
       if (side === "left") {
+        if (isWideLayout) {
+          const maxLeftWidth =
+            bounds.contentWidth -
+            rightWidth -
+            HANDLE_WIDTH * 2 -
+            MIN_CENTER_WIDTH -
+            bounds.columnGap * 4;
+          const nextLeftWidth = clamp(
+            moveEvent.clientX - bounds.left,
+            MIN_LEFT_WIDTH,
+            Math.max(MIN_LEFT_WIDTH, maxLeftWidth),
+          );
+          const nextCenterWidth = Math.max(
+            MIN_CENTER_WIDTH,
+            getAvailableCenterWidth(
+              bounds.contentWidth,
+              bounds.columnGap,
+              nextLeftWidth,
+              rightWidth,
+            ),
+          );
+          setLeftWidth(nextLeftWidth);
+          setWideCenterWidth(nextCenterWidth);
+          return;
+        }
+
         const maxLeftWidth = getMaxSideWidth(
           bounds.contentWidth,
           bounds.columnGap,
-          rightWidth
+          rightWidth,
+          MIN_CENTER_WIDTH
         );
         const nextWidth = moveEvent.clientX - bounds.left;
         setLeftWidth(
@@ -270,10 +366,41 @@ export default function Home() {
         return;
       }
 
+      if (isWideLayout) {
+        const maxCenterWidth = Math.max(
+          MIN_CENTER_WIDTH,
+          getAvailableCenterWidth(
+            bounds.contentWidth,
+            bounds.columnGap,
+            leftWidth,
+            MIN_RIGHT_WIDTH,
+          ),
+        );
+        const nextCenterWidth = clamp(
+          moveEvent.clientX -
+            bounds.left -
+            leftWidth -
+            HANDLE_WIDTH -
+            bounds.columnGap * 2,
+          MIN_CENTER_WIDTH,
+          maxCenterWidth,
+        );
+        const nextRightWidth =
+          bounds.contentWidth -
+          leftWidth -
+          nextCenterWidth -
+          HANDLE_WIDTH * 2 -
+          bounds.columnGap * 4;
+        setWideCenterWidth(nextCenterWidth);
+        setRightWidth(nextRightWidth);
+        return;
+      }
+
       const maxRightWidth = getMaxSideWidth(
         bounds.contentWidth,
         bounds.columnGap,
-        leftWidth
+        leftWidth,
+        MIN_CENTER_WIDTH
       );
       const nextWidth = bounds.right - moveEvent.clientX;
       setRightWidth(
@@ -413,23 +540,26 @@ export default function Home() {
     }
   }
 
-  // explorer | gutter | bounded viewer | gutter | chat
-  const desktopColumns = `${leftWidth}px ${HANDLE_WIDTH}px minmax(${MIN_CENTER_WIDTH}px, 1fr) ${HANDLE_WIDTH}px ${rightWidth}px`;
+  // explorer | gutter | preview | gutter | chat
+  const centerTrack =
+    isWideLayout && wideCenterWidth !== null
+      ? `minmax(${MIN_CENTER_WIDTH}px, ${wideCenterWidth}px)`
+      : `minmax(${MIN_CENTER_WIDTH}px, 1fr)`;
+  const desktopColumns = `${leftWidth}px ${HANDLE_WIDTH}px ${centerTrack} ${HANDLE_WIDTH}px ${rightWidth}px`;
   const layoutStyle = {
     "--desktop-columns": desktopColumns,
   } as CSSProperties;
-
   return (
     <main
       ref={mainRef}
-      className="mx-auto grid h-[100dvh] min-w-0 max-w-full grid-cols-1 gap-4 overflow-x-hidden px-2 py-4 sm:px-3 lg:grid-cols-[var(--desktop-columns)] lg:grid-rows-[auto_1fr] lg:overflow-hidden"
+      className="mx-auto grid h-[100dvh] min-w-0 max-w-full grid-cols-1 gap-2 overflow-x-hidden bg-[radial-gradient(circle_at_top,_rgba(56,189,248,0.12),_transparent_45%),linear-gradient(to_bottom,_rgba(15,23,42,0.98),_rgba(2,6,23,0.98))] px-2 pb-2 pt-2 sm:px-3 lg:grid-cols-[var(--desktop-columns)] lg:grid-rows-[auto_1fr] lg:gap-x-1 lg:gap-y-1 lg:overflow-hidden"
       style={layoutStyle}
     >
       {/* Header spans all grid columns on desktop (five tracks including gutters). */}
-      <header
-        className="min-w-0 rounded-2xl border border-slate-700/60 bg-slate-900/70 px-4 py-1.5 backdrop-blur lg:col-span-5"
-      >
-        <p className="text-xs font-medium uppercase tracking-wide text-sky-300">RAG System</p>
+      <header className="min-w-0 rounded-2xl border border-sky-400/20 bg-slate-900/65 px-4 py-2.5 shadow-[0_10px_30px_rgba(2,6,23,0.45)] backdrop-blur-xl lg:col-span-5">
+        <p className="text-[11px] font-semibold uppercase tracking-[0.2em] text-sky-200/90">
+          RAG System
+        </p>
       </header>
 
       {/* Left column: uploaded document list + upload form. */}
@@ -445,11 +575,11 @@ export default function Home() {
         role="separator"
         aria-label="Resize file explorer"
         onMouseDown={(event) => startResize("left", event)}
-        className="hidden min-h-0 rounded-md bg-slate-700/60 transition hover:bg-slate-500 lg:block lg:cursor-col-resize"
+        className="hidden min-h-0 w-1 min-w-1 max-w-1 shrink-0 bg-slate-700 transition duration-200 ease-out hover:bg-slate-500 lg:block lg:cursor-col-resize"
       />
 
       {/* Middle column: document preview panel. */}
-      <section className="min-h-0 min-w-0 rounded-2xl border border-slate-700/60 bg-slate-900/50 p-4">
+      <section className="min-h-0 min-w-0 lg:h-full">
         <DocumentViewer
           documentId={selectedDocumentId}
           citationTarget={citationTarget}
@@ -461,7 +591,7 @@ export default function Home() {
         role="separator"
         aria-label="Resize chat panel"
         onMouseDown={(event) => startResize("right", event)}
-        className="hidden min-h-0 rounded-md bg-slate-700/60 transition hover:bg-slate-500 lg:block lg:cursor-col-resize"
+        className="hidden min-h-0 w-1 min-w-1 max-w-1 shrink-0 bg-slate-700 transition duration-200 ease-out hover:bg-slate-500 lg:block lg:cursor-col-resize"
       />
 
       {/* Right column: chat conversation and message composer. */}
