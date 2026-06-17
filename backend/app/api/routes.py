@@ -29,7 +29,7 @@ from backend.app.schemas import (
     UploadResponse,
 )
 from backend.app.services.rag_service import (
-    add_documents_to_vectorstore,
+    add_document_to_vectorstore,
     document_item_from_pdf_path,
     get_default_pdf_dir,
     get_default_pdf_paths,
@@ -146,15 +146,17 @@ async def upload(request: Request, file: UploadFile = File(...)) -> UploadRespon
 
     save_path = UPLOAD_DIR / safe_name
 
+    logger.info(f"/upload endpoint: Saving {safe_name} to disk")
     with open(save_path, "wb") as buffer:
         shutil.copyfileobj(file.file, buffer)
 
     app = request.app  # FastAPI instance
 
-    # TODO: offload add_documents_to_vectorstore to a thread pool; save+index is CPU/IO heavy.
-    _, _ = add_documents_to_vectorstore(
+    # TODO: offload add_document_to_vectorstore to a thread pool; save+index is CPU/IO heavy.
+    logger.info(f"/upload endpoint: Add {safe_name} to vector store")
+    _, _ = add_document_to_vectorstore(
         vector_store=app.state.vector_store,
-        file_paths=[str(save_path)],
+        file_path=str(save_path),
         settings=app.state.rag_settings,
     )
 

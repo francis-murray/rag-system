@@ -89,12 +89,20 @@ def pdf_to_documents(file_path: str, settings: RagSettings) -> list[Document]:
         )
 
     basename = path.name
-    logger.info("Converting %s with Docling...", basename)
+    do_ocr = settings.index.docling.do_ocr
+    do_table_structure = settings.index.docling.do_table_structure
+    logger.info(
+        "Parsing %s with Docling (ocr=%s, table_structure=%s)",
+        basename,
+        do_ocr,
+        do_table_structure,
+    )
 
     pipeline_options = PdfPipelineOptions()
-    pipeline_options.do_ocr = settings.index.docling.do_ocr
-    pipeline_options.do_table_structure = settings.index.docling.do_table_structure
+    pipeline_options.do_ocr = do_ocr
+    pipeline_options.do_table_structure = do_table_structure
 
+    logger.info("Convert %s to a docling document...", basename)
     converter = DocumentConverter(
         format_options={
             InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
@@ -103,6 +111,7 @@ def pdf_to_documents(file_path: str, settings: RagSettings) -> list[Document]:
     result = converter.convert(str(path))
     dl_doc = result.document
 
+    logger.info("Chunk %s docling document", basename)
     chunker = build_hybrid_chunker(settings)
     documents: list[Document] = []
 

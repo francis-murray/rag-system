@@ -293,16 +293,16 @@ def create_or_load_vectorstore(collection_name, embedding_function, persist_dire
     return vector_store
 
 
-def add_documents_to_vectorstore(
-    vector_store: Chroma, file_paths: list[str], settings: RagSettings
-):
+def add_document_to_vectorstore(
+    vector_store: Chroma,
+    file_path: str,
+    settings: RagSettings,
+) -> tuple[Chroma, list[str]]:
+    """Parse, chunk, and index a single PDF into the vector store."""
 
-    chunks: list[Document] = []
-    for file_path in file_paths:
-        chunks.extend(pdf_to_documents(file_path, settings))
-    logger.info("Total chunks across all PDFs: %d", len(chunks))
+    basename = Path(file_path).name
+    chunks = pdf_to_documents(file_path, settings)
 
-    # Build deterministic ids so we can upsert only missing chunks.
     chunk_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
 
     # Check which ids already exist to avoid re-embedding and duplicate indexing.
@@ -319,11 +319,36 @@ def add_documents_to_vectorstore(
 
     if chunks_to_add:
         vector_store.add_documents(documents=chunks_to_add, ids=ids_to_add)
-        logger.info("Indexed %d new chunks.", len(chunks_to_add))
+        logger.info("Indexed %d new chunks from %s.", len(chunks_to_add), basename)
     else:
-        logger.info("No new chunks to index - using existing vector store.")
+        logger.info(
+            "No new chunks to index for %s - using existing vector store.",
+            basename,
+        )
 
     return vector_store, chunk_ids
+
+
+def add_documents_to_vectorstore(
+    vector_store: Chroma,
+    file_paths: list[str],
+    settings: RagSettings,
+) -> tuple[Chroma, list[str]]:
+    """Index multiple PDFs by processing each file separately."""
+
+    all_chunk_ids: list[str] = []
+    for file_path in file_paths:
+        vector_store, chunk_ids = add_document_to_vectorstore(
+            vector_store=vector_store,
+            file_path=file_path,
+            settings=settings,
+        )
+        all_chunk_ids.extend(chunk_ids)
+
+    if len(file_paths) > 1:
+        logger.info("Total chunks across all PDFs: %d", len(all_chunk_ids))
+
+    return vector_store, all_chunk_ids
 
 
 def deterministic_chunk_id(document: Document):
