@@ -7,6 +7,7 @@ from backend.app.api.routes import router
 from backend.app.config.rag_settings import get_rag_settings
 from backend.app.core.config import load_and_validate_env
 from backend.app.core.logging_config import setup_logging
+from backend.app.services.docling_ingest import build_document_converter
 from backend.app.services.rag_service import (
     build_index,
     build_reranker,
@@ -27,10 +28,19 @@ async def lifespan(app: FastAPI):
 
     pdf_paths = get_default_pdf_paths()
     if not pdf_paths:
-        logger.info("No indexed documents — upload at least one PDF.")
+        logger.info(
+            "No PDF files in the default documents folder — upload at least one PDF."
+        )
+
+    logger.info("Building document converter...")
+    app.state.document_converter = build_document_converter(settings)
 
     logger.info("Building index...")
-    app.state.vector_store = build_index(pdf_paths, settings)
+    app.state.vector_store = build_index(
+        pdf_paths,
+        settings,
+        document_converter=app.state.document_converter,
+    )
 
     logger.info("Building reranker...")
     app.state.reranker = build_reranker(settings)

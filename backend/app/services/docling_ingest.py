@@ -9,6 +9,9 @@ from pathlib import Path
 
 import tiktoken
 from docling.chunking import HybridChunker  # type: ignore[reportPrivateImportUsage]
+from docling.datamodel.base_models import InputFormat
+from docling.datamodel.pipeline_options import PdfPipelineOptions
+from docling.document_converter import DocumentConverter, PdfFormatOption
 from docling_core.transforms.chunker.tokenizer.openai import OpenAITokenizer
 from langchain_core.documents import Document
 
@@ -76,12 +79,34 @@ def extract_locations(dl_doc, chunk) -> list[PageLocation]:
     ]
 
 
-def pdf_to_documents(file_path: str, settings: RagSettings) -> list[Document]:
-    """Convert a PDF with Docling and emit LangChain Documents with geometry metadata."""
-    from docling.datamodel.base_models import InputFormat
-    from docling.datamodel.pipeline_options import PdfPipelineOptions
-    from docling.document_converter import DocumentConverter, PdfFormatOption
+def build_document_converter(settings: RagSettings) -> DocumentConverter:
+    """Build a Docling ``DocumentConverter`` for the configured PDF pipeline options."""
+    do_ocr = settings.index.docling.do_ocr
+    do_table_structure = settings.index.docling.do_table_structure
 
+    pipeline_options = PdfPipelineOptions()
+    pipeline_options.do_ocr = do_ocr
+    pipeline_options.do_table_structure = do_table_structure
+    logger.info(
+        "Building Docling DocumentConverter (ocr=%s, table_structure=%s)",
+        do_ocr,
+        do_table_structure,
+    )
+    converter = DocumentConverter(
+        format_options={
+            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
+        }
+    )
+    converter.initialize_pipeline(InputFormat.PDF)
+    return converter
+
+
+def pdf_to_documents(
+    file_path: str,
+    settings: RagSettings,
+    document_converter: DocumentConverter,
+) -> list[Document]:
+    """Convert a PDF with Docling and emit LangChain Documents with geometry metadata."""
     path = Path(file_path)
     if path.suffix.lower() != ".pdf":
         raise ValueError(
@@ -98,17 +123,8 @@ def pdf_to_documents(file_path: str, settings: RagSettings) -> list[Document]:
         do_table_structure,
     )
 
-    pipeline_options = PdfPipelineOptions()
-    pipeline_options.do_ocr = do_ocr
-    pipeline_options.do_table_structure = do_table_structure
-
     logger.info("Convert %s to a docling document...", basename)
-    converter = DocumentConverter(
-        format_options={
-            InputFormat.PDF: PdfFormatOption(pipeline_options=pipeline_options),
-        }
-    )
-    result = converter.convert(str(path))
+    result = document_converter.convert(str(path))
     dl_doc = result.document
 
     logger.info("Chunk %s docling document", basename)

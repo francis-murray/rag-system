@@ -158,6 +158,7 @@ async def upload(request: Request, file: UploadFile = File(...)) -> UploadRespon
         vector_store=app.state.vector_store,
         file_path=str(save_path),
         settings=app.state.rag_settings,
+        document_converter=app.state.document_converter,
     )
 
     return UploadResponse(

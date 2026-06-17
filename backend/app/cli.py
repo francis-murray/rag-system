@@ -4,6 +4,7 @@ from backend.app.config.rag_settings import get_rag_settings
 from backend.app.core.config import load_and_validate_env
 from backend.app.core.logging_config import setup_logging
 from backend.app.schemas import CitedChunk
+from backend.app.services.docling_ingest import build_document_converter
 from backend.app.services.rag_service import (
     build_index,
     build_reranker,
@@ -53,8 +54,15 @@ def main():
             Please upload at least one before querying the knowledge base."
         )
 
+    logger.info("Building document converter...")
+    document_converter = build_document_converter(settings)
+
     logger.info("Building index...")
-    vector_store = build_index(pdf_paths, settings)
+    vector_store = build_index(
+        pdf_paths,
+        settings,
+        document_converter=document_converter,
+    )
 
     logger.info("Building reranker...")
     reranker = build_reranker(settings)

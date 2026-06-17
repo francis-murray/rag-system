@@ -9,6 +9,7 @@ from pathlib import Path
 from typing import Callable
 
 import numpy as np
+from docling.document_converter import DocumentConverter
 from langchain_chroma import Chroma
 from langchain_core.documents import Document
 from langchain_core.embeddings import Embeddings
@@ -29,6 +30,7 @@ from backend.app.schemas import (
     StreamProgressStage,
 )
 from backend.app.services.docling_ingest import (
+    build_document_converter,
     headings_from_metadata,
     locations_from_metadata,
     pdf_to_documents,
@@ -109,12 +111,19 @@ def document_item_from_pdf_path(file_path: str) -> DocumentItem:
     )
 
 
-def build_index(file_paths: list[str], settings: RagSettings) -> Chroma:
+def build_index(
+    file_paths: list[str],
+    settings: RagSettings,
+    document_converter: DocumentConverter | None = None,
+) -> Chroma:
 
     ###################################################
     ########      1. INDEXING STAGE            ########
     ###################################################
     logger.info("Indexing stage for %d PDF file(s)...", len(file_paths))
+
+    if document_converter is None:
+        document_converter = build_document_converter(settings)
 
     # Get embeddings function
     embeddings = get_embedding_function(embedding_model_name=settings.models.embedding)
@@ -132,6 +141,7 @@ def build_index(file_paths: list[str], settings: RagSettings) -> Chroma:
             vector_store=vector_store,
             file_paths=file_paths,
             settings=settings,
+            document_converter=document_converter,
         )
 
     return vector_store
@@ -297,11 +307,12 @@ def add_document_to_vectorstore(
     vector_store: Chroma,
     file_path: str,
     settings: RagSettings,
+    document_converter: DocumentConverter,
 ) -> tuple[Chroma, list[str]]:
     """Parse, chunk, and index a single PDF into the vector store."""
 
     basename = Path(file_path).name
-    chunks = pdf_to_documents(file_path, settings)
+    chunks = pdf_to_documents(file_path, settings, document_converter)
 
     chunk_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
 
@@ -333,8 +344,12 @@ def add_documents_to_vectorstore(
     vector_store: Chroma,
     file_paths: list[str],
     settings: RagSettings,
+    document_converter: DocumentConverter | None = None,
 ) -> tuple[Chroma, list[str]]:
     """Index multiple PDFs by processing each file separately."""
+
+    if document_converter is None:
+        document_converter = build_document_converter(settings)
 
     all_chunk_ids: list[str] = []
     for file_path in file_paths:
@@ -342,6 +357,7 @@ def add_documents_to_vectorstore(
             vector_store=vector_store,
             file_path=file_path,
             settings=settings,
+            document_converter=document_converter,
         )
         all_chunk_ids.extend(chunk_ids)
 
