@@ -35,6 +35,12 @@ from backend.app.services.docling_ingest import (
     locations_from_metadata,
     pdf_to_documents,
 )
+from backend.app.services.ingest_manifest import (
+    get_manifest_entry,
+    get_manifest_path,
+    init_manifest_db,
+    set_manifest_entry,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -132,7 +138,7 @@ def build_index(
     vector_store = create_or_load_vectorstore(
         collection_name=settings.index.collection_name,
         embedding_function=embeddings,
-        persist_directory=str(get_project_root() / "data" / "chroma_vector_store"),
+        persist_directory=str(get_project_root() / "data" / "index" / "chroma_vector_store"),
     )
 
     # add documents (if any) to vector store
@@ -303,39 +309,119 @@ def create_or_load_vectorstore(collection_name, embedding_function, persist_dire
     return vector_store
 
 
+def compute_ingest_fingerprint(file_path: str, settings: RagSettings) -> str:
+    """Fingerprint a PDF plus ingestion settings to decide whether re-parsing is needed.
+
+    The fingerprint changes when:
+    - the PDF bytes change (any edit to the file), or
+    - ingestion settings change (OCR, table structure, chunk size, embedding model).
+
+    Returns a fixed-length hex digest stored in the ingest manifest DB.
+    """
+    file_hash = hashlib.sha256(Path(file_path).read_bytes()).hexdigest()
+
+    settings_hash = hashlib.sha256(
+        (
+            f"{settings.index.docling.do_ocr}|"
+            f"{settings.index.docling.do_table_structure}|"
+            f"{settings.index.docling.chunk_size}|"
+            f"{settings.models.embedding}"
+        ).encode()
+    ).hexdigest()
+
+    combined = f"{file_hash}|{settings_hash}"
+    return hashlib.sha256(combined.encode()).hexdigest()
+
+
 def add_document_to_vectorstore(
     vector_store: Chroma,
     file_path: str,
     settings: RagSettings,
     document_converter: DocumentConverter,
 ) -> tuple[Chroma, list[str]]:
-    """Parse, chunk, and index a single PDF into the vector store."""
+    """Parse, chunk, and upsert a single PDF into the vector store.
 
+    Skips Docling entirely when the manifest records a successful prior ingest
+    with the same fingerprint and the expected chunk count is present in Chroma.
+    Otherwise runs Docling, adds new chunks, then writes a manifest entry so that
+    the next call can skip.
+
+    Returns the vector store and the chunk ids for this document (empty list on
+    the skip path, since callers do not use them).
+    """
     basename = Path(file_path).name
+    ingest_fingerprint = compute_ingest_fingerprint(file_path, settings)
+
+    db_path = get_manifest_path()
+    init_manifest_db(db_path)
+
+    # Fast-path: skip Docling entirely if the manifest records a successful prior
+    # ingest under the same fingerprint and Chroma still holds the expected number
+    # of chunks. Any mismatch (new file, changed settings, partial Chroma state)
+    # falls through to the full re-index path below.
+    entry = get_manifest_entry(db_path, basename)
+    if entry is None:
+        logger.info("No manifest entry for %s — indexing for the first time.", basename)
+    else:
+        stored_fingerprint, stored_chunk_count = entry
+        if stored_fingerprint == ingest_fingerprint:
+            actual_count = len(
+                vector_store.get(
+                    where={"document_id": basename}, include=[]
+                )["ids"]
+            )
+            if actual_count == stored_chunk_count:
+                logger.info(
+                    "Skipping Docling for %s — already indexed (%d chunks).",
+                    basename,
+                    stored_chunk_count,
+                )
+                return vector_store, []
+            logger.warning(
+                "Chroma chunk count mismatch for %s (expected %d, found %d) — re-indexing.",
+                basename,
+                stored_chunk_count,
+                actual_count,
+            )
+        else:
+            logger.info(
+                "Fingerprint changed for %s — file or ingest settings updated, re-indexing.",
+                basename,
+            )
+
+    # Full re-index path: parse the PDF with Docling, then sync Chroma so it
+    # exactly mirrors the new chunk set — deleting chunks that no longer exist
+    # and embedding only chunks that are new or changed (same id = same content,
+    # so unchanged chunks are skipped to avoid redundant embedding API calls).
     chunks = pdf_to_documents(file_path, settings, document_converter)
-
     chunk_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
+    new_ids = set(chunk_ids)
 
-    # Check which ids already exist to avoid re-embedding and duplicate indexing.
-    existing = vector_store.get(ids=chunk_ids)
-    existing_ids = set(existing.get("ids", []))
+    existing_ids = set(
+        vector_store.get(where={"document_id": basename}, include=[])["ids"]
+    )
 
-    chunks_to_add = []
-    ids_to_add = []
-    for chunk, chunk_id in zip(chunks, chunk_ids):
-        if chunk_id in existing_ids:
-            continue
-        chunks_to_add.append(chunk)
-        ids_to_add.append(chunk_id)
+    # Remove chunks that belong to pages no longer in the document.
+    stale_ids = existing_ids - new_ids
+    if stale_ids:
+        vector_store.delete(ids=list(stale_ids))
+        logger.info("Deleted %d stale chunks for %s.", len(stale_ids), basename)
 
+    # Add only chunks whose content has changed or that are genuinely new.
+    chunks_to_add = [c for c, cid in zip(chunks, chunk_ids) if cid not in existing_ids]
+    ids_to_add = [cid for cid in chunk_ids if cid not in existing_ids]
     if chunks_to_add:
         vector_store.add_documents(documents=chunks_to_add, ids=ids_to_add)
-        logger.info("Indexed %d new chunks from %s.", len(chunks_to_add), basename)
-    else:
         logger.info(
-            "No new chunks to index for %s - using existing vector store.",
+            "Indexed %d new chunks from %s (%d unchanged).",
+            len(chunks_to_add),
             basename,
+            len(chunk_ids) - len(chunks_to_add),
         )
+    else:
+        logger.info("All %d chunks for %s already indexed — nothing to add.", len(chunk_ids), basename)
+
+    set_manifest_entry(db_path, basename, ingest_fingerprint, len(chunk_ids))
 
     return vector_store, chunk_ids
 

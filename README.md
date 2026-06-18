@@ -5,7 +5,7 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 ## Features
 
 - PDF loading and chunking
-- Persistent vector store with deterministic chunk IDs
+- Persistent vector store with deterministic chunk IDs and SQLite ingest manifest for skip-on-unchanged re-uploads
 - Embedding-based semantic search
 - Cross-encoder reranking
 - Citation-aware answer generation with supporting source chunks
@@ -155,7 +155,7 @@ The frontend calls internal Next.js API routes:
 ### Notes
 
 - The first time you run the CLI or API, the app downloads cross-encoder weights (about 80 MB) and Docling layout models on first PDF conversion. By default Hugging Face cache is `~/.cache/huggingface/hub` on macOS and Linux.
-- The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop. Indexing uses a persistent Chroma database under `data/chroma_vector_store/`; new chunks are **added** for PDFs that are not already represented (stable chunk IDs avoid duplicate embeddings).
+- The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop. Indexing uses a persistent Chroma database under `data/index/chroma_vector_store/`. A SQLite manifest at `data/index/ingest_manifest.db` tracks each successfully indexed PDF (fingerprint of file bytes + ingest settings, plus expected chunk count). On re-upload, Docling is skipped entirely when the fingerprint and chunk count match; otherwise stale chunks are pruned and only new or changed chunks are re-embedded.
 - `POST /upload` saves a **PDF** under `data/pdf_documents/` and appends that file’s chunks to the same in-memory vector store used by `/query`, so new uploads are searchable without restarting. Dropping files manually into the folder outside of `/upload` still requires a process restart to index them.
 
 ## Backend API Endpoints
@@ -465,7 +465,7 @@ curl -N -X POST http://127.0.0.1:3000/api/query/stream \
 
 1. PDFs are converted with **Docling** and chunked with **HybridChunker** (token budget aligned to the embedding model tokenizer).
 2. Each chunk stores multi-page highlight geometry: normalized bounding boxes (0–1, top-left origin, y-down) derived from Docling provenance and page dimensions.
-3. Chunks are embedded and stored in (or merged into) the persistent vector database; existing chunk IDs are skipped so re-runs do not duplicate work. Geometry is JSON-serialized in Chroma metadata and deserialized before reaching the API.
+3. A fingerprint of the PDF bytes and ingest settings is checked against the SQLite manifest. If it matches and the expected chunk count is present in Chroma, Docling is skipped entirely. Otherwise chunks are synced into Chroma: stale chunks (from deleted or changed pages) are removed, and only new or changed chunks are embedded and added. The manifest is updated only after a successful sync. Geometry is JSON-serialized in Chroma metadata and deserialized before reaching the API.
 4. A query retrieves the top candidate chunks by vector similarity.
 5. A cross-encoder reranks candidates and selects the top chunks.
 6. The LLM answers using only the selected context.
@@ -485,6 +485,7 @@ backend/
     prompts/                               # Versioned prompt configuration
     services/                              # Indexing, retrieval, reranking, generation
       docling_ingest.py                    # Docling PDF conversion + provenance extraction
+      ingest_manifest.py                   # SQLite manifest tracking successful PDF ingests
       rag_service.py                       # Core RAG pipeline: index, retrieve, rerank, generate
     cli.py                                 # Interactive CLI entry point
     main.py                                # FastAPI app entry point
@@ -502,7 +503,9 @@ frontend/
 data/
   pdf_documents/                           # Add source PDFs here
   evals/                                   # Golden dataset + run results
-  chroma_vector_store/                     # Generated vector DB (local, at runtime)
+  index/
+    chroma_vector_store/                   # Generated vector DB (local, at runtime)
+    ingest_manifest.db                     # SQLite manifest of successfully indexed PDFs
 logs/
   app.log                                  # Generated application logs
 ```
