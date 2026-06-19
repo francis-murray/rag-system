@@ -2,7 +2,7 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent } from "react";
-import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, LlmUsage, QueryResponse, StreamEvent, UploadResponse, UploadStreamEvent } from "@/lib/types";
+import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, LlmUsage, QueryResponse, QueryStreamEvent, UploadResponse, UploadStreamEvent } from "@/lib/types";
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentViewer } from "@/components/DocumentViewer";
@@ -98,7 +98,7 @@ function getResponsiveLayout(viewportWidth: number) {
 
 // Everything the UI needs while an answer streams in.
 // The server sends one small JSON object per line; shapes are defined in @/lib/types.
-type StreamState = {
+type QueryStreamState = {
   requestId: string | null;
   lastSequence: number;
   progressMessages: string[];
@@ -109,9 +109,9 @@ type StreamState = {
   usage: LlmUsage | null;
 };
 
-type StreamAction = { type: "reset" } | { type: "event"; event: StreamEvent };
+type QueryStreamAction = { type: "reset" } | { type: "event"; event: QueryStreamEvent };
 
-const INITIAL_STREAM_STATE: StreamState = {
+const INITIAL_QUERY_STREAM_STATE: QueryStreamState = {
   requestId: null,
   lastSequence: 0,
   progressMessages: [INITIAL_LOADING_MESSAGE],
@@ -122,10 +122,10 @@ const INITIAL_STREAM_STATE: StreamState = {
   usage: null,
 };
 
-// Applies one NDJSON stream event to the visible chat state.
-function streamReducer(state: StreamState, action: StreamAction): StreamState {
+// Applies one query-stream NDJSON event to the visible chat state.
+function queryStreamReducer(state: QueryStreamState, action: QueryStreamAction): QueryStreamState {
   if (action.type === "reset") {
-    return INITIAL_STREAM_STATE;
+    return INITIAL_QUERY_STREAM_STATE;
   }
 
   const event = action.event;
@@ -211,8 +211,8 @@ function getErrorMessage(data: unknown): string {
 export default function Home() {
   const [input, setInput] = useState("");
   const [lastQuestion, setLastQuestion] = useState("");
-  // `streamState` holds streaming UI data; `dispatchStream` applies each parsed line from the server.
-  const [streamState, dispatchStream] = useReducer(streamReducer, INITIAL_STREAM_STATE);
+  // `queryStreamState` holds streaming UI data; `dispatchQueryStream` applies each parsed line from the server.
+  const [queryStreamState, dispatchQueryStream] = useReducer(queryStreamReducer, INITIAL_QUERY_STREAM_STATE);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
   const [uploadProgressMessages, setUploadProgressMessages] = useState<string[]>([]);
@@ -320,7 +320,7 @@ export default function Home() {
 
   /** Pushes a synthetic `failed` event for client-side request/stream failures. */
   function dispatchLocalFailure(message: string) {
-    dispatchStream({
+    dispatchQueryStream({
       type: "event",
       event: {
         type: "failed",
@@ -525,7 +525,7 @@ export default function Home() {
     setInput("");
 
     // Reset prior response/error before making a new request.
-    dispatchStream({ type: "reset" });
+    dispatchQueryStream({ type: "reset" });
     setIsLoading(true);
     setLastQuestion(trimmedQuestion);
 
@@ -571,15 +571,15 @@ export default function Home() {
 
         for (const line of lines) {
           if (!line.trim()) continue;
-          const event = JSON.parse(line) as StreamEvent;
-          dispatchStream({ type: "event", event });
+          const event = JSON.parse(line) as QueryStreamEvent;
+          dispatchQueryStream({ type: "event", event });
         }
       }
 
       // Parse one trailing event if stream ended without a final newline.
       if (buffer.trim()) {
-        const event = JSON.parse(buffer) as StreamEvent;
-        dispatchStream({ type: "event", event });
+        const event = JSON.parse(buffer) as QueryStreamEvent;
+        dispatchQueryStream({ type: "event", event });
       }
     } catch {
       // Network failure, server down, or unexpected runtime issue.
@@ -676,14 +676,14 @@ export default function Home() {
       <ChatPanel
         isDark={isDark}
         title="Assistant chat"
-        error={streamState.error}
+        error={queryStreamState.error}
         lastQuestion={lastQuestion}
-        result={streamState.result}
+        result={queryStreamState.result}
         isLoading={isLoading}
-        streamedAnswer={streamState.streamedAnswer}
-        progressMessages={streamState.progressMessages}
-        usage={streamState.usage}
-        timingsMs={streamState.timingsMs}
+        streamedAnswer={queryStreamState.streamedAnswer}
+        progressMessages={queryStreamState.progressMessages}
+        usage={queryStreamState.usage}
+        timingsMs={queryStreamState.timingsMs}
         input={input}
         onInputChange={setInput}
         onSubmit={handleSubmit}

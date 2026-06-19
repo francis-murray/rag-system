@@ -105,11 +105,11 @@ class UploadResponse(BaseModel):
     filename: str = Field(description="PDF basename on disk.")
 
 
-StreamProgressStage = Literal["retrieval", "rerank", "inference"]
+QueryProgressStage = Literal["retrieval", "rerank", "inference"]
 
 
-class StreamEventBase(BaseModel):
-    """Shared envelope for all V1 stream events."""
+class QueryStreamEventBase(BaseModel):
+    """Shared envelope for all query stream events."""
 
     stream_version: Literal[1] = Field(default=1)
     request_id: str = Field(description="Unique request identifier for this stream.")
@@ -117,18 +117,18 @@ class StreamEventBase(BaseModel):
     timestamp_ms: int = Field(description="Server-side Unix epoch timestamp in milliseconds.")
 
 
-class StreamStartEvent(StreamEventBase):
-    """First event in the V1 stream lifecycle."""
+class QueryStreamStartEvent(QueryStreamEventBase):
+    """First event in the query stream lifecycle."""
 
     type: Literal["start"] = "start"
     query: str = Field(description="Original user query text.")
 
 
-class StreamProgressEvent(StreamEventBase):
+class QueryStreamProgressEvent(QueryStreamEventBase):
     """Pipeline milestone event emitted during retrieval, reranking, or model inference."""
 
     type: Literal["progress"] = "progress"
-    stage: StreamProgressStage = Field(
+    stage: QueryProgressStage = Field(
         description=(
             "Pipeline phase: retrieval and rerank select context; inference covers "
             "the forward pass / streamed answer from the language model (including "
@@ -138,14 +138,14 @@ class StreamProgressEvent(StreamEventBase):
     message: str = Field(description="Human-readable progress message.")
 
 
-class StreamDeltaEvent(StreamEventBase):
+class QueryStreamDeltaEvent(QueryStreamEventBase):
     """Incremental answer text emitted while the LLM streams tokens."""
 
     type: Literal["delta"] = "delta"
     delta: str = Field(description="Answer text chunk to append on the client.")
 
 
-class StreamCompleteEvent(StreamEventBase):
+class QueryStreamCompleteEvent(QueryStreamEventBase):
     """Terminal success event with the canonical final answer payload."""
 
     type: Literal["complete"] = "complete"
@@ -165,7 +165,7 @@ class StreamCompleteEvent(StreamEventBase):
     )
 
 
-class StreamFailedEvent(StreamEventBase):
+class QueryStreamFailedEvent(QueryStreamEventBase):
     """Terminal failure event with stable error code and display-safe message."""
 
     type: Literal["failed"] = "failed"

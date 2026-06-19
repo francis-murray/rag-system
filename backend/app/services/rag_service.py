@@ -27,7 +27,7 @@ from backend.app.schemas import (
     CitedChunk,
     DocumentItem,
     LlmUsage,
-    StreamProgressStage,
+    QueryProgressStage,
     UploadProgressStage,
 )
 from backend.app.services.docling_ingest import (
@@ -64,7 +64,7 @@ class RagQueryResult(BaseModel):
     usage: LlmUsage | None = None
 
 
-ProgressCallback = Callable[[StreamProgressStage, str], None]
+QueryProgressCallback = Callable[[QueryProgressStage, str], None]
 UploadProgressCallback = Callable[[UploadProgressStage, str], None]
 
 
@@ -160,7 +160,7 @@ def run_rag_query(
     vector_store: Chroma,
     reranker: CrossEncoder,
     settings: RagSettings,
-    on_progress: ProgressCallback | None = None,
+    on_progress: QueryProgressCallback | None = None,
     on_delta: Callable[[str], None] | None = None,
 ) -> RagQueryResult:
 
@@ -568,7 +568,7 @@ def generate_answer(
     context_text: str,
     model: str,
     prompt: Prompt,
-    on_progress: ProgressCallback | None = None,
+    on_progress: QueryProgressCallback | None = None,
     on_delta: Callable[[str], None] | None = None,
 ) -> tuple[AnswerWithCitations, LlmUsage | None]:
     """Ask the LLM to answer the question using only the provided context."""
@@ -619,7 +619,7 @@ def generate_answer_streaming(
     system_msg: str,
     user_msg: str,
     on_delta: Callable[[str], None],
-    on_progress: ProgressCallback | None = None,
+    on_progress: QueryProgressCallback | None = None,
 ) -> tuple[str, LlmUsage | None]:
     """Stream answer text deltas from OpenAI and return the full text."""
     chunks: list[str] = []

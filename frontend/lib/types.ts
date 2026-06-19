@@ -54,48 +54,50 @@ export type UploadResponse = {
   filename: string
 }
 
-export type StreamEventBase = {
+export type QueryProgressStage = "retrieval" | "rerank" | "inference"
+
+export type QueryStreamEventBase = {
   stream_version: 1
   request_id: string
   sequence: number
   timestamp_ms: number
 }
 
-export type StreamStartEvent = StreamEventBase & {
+export type QueryStreamStartEvent = QueryStreamEventBase & {
   type: "start"
   query: string
 }
 
-export type StreamProgressEvent = StreamEventBase & {
+export type QueryStreamProgressEvent = QueryStreamEventBase & {
   type: "progress"
-  stage: "retrieval" | "rerank" | "inference"
+  stage: QueryProgressStage
   message: string
 }
 
-export type StreamDeltaEvent = StreamEventBase & {
+export type QueryStreamDeltaEvent = QueryStreamEventBase & {
   type: "delta"
   delta: string
 }
 
-export type StreamCompleteEvent = StreamEventBase & {
+export type QueryStreamCompleteEvent = QueryStreamEventBase & {
   type: "complete"
   data: QueryResponse
   timings_ms: Record<string, number>
   usage?: LlmUsage | null
 }
 
-export type StreamFailedEvent = StreamEventBase & {
+export type QueryStreamFailedEvent = QueryStreamEventBase & {
   type: "failed"
   code: "internal_error"
   message: string
 }
 
-export type StreamEvent =
-  | StreamStartEvent
-  | StreamProgressEvent
-  | StreamDeltaEvent
-  | StreamCompleteEvent
-  | StreamFailedEvent
+export type QueryStreamEvent =
+  | QueryStreamStartEvent
+  | QueryStreamProgressEvent
+  | QueryStreamDeltaEvent
+  | QueryStreamCompleteEvent
+  | QueryStreamFailedEvent
 
 export type UploadProgressStage = "saving" | "parsing" | "indexing"
 

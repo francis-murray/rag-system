@@ -20,12 +20,12 @@ from backend.app.schemas import (
     HealthResponse,
     QueryRequest,
     QueryResponse,
-    StreamCompleteEvent,
-    StreamDeltaEvent,
-    StreamFailedEvent,
-    StreamProgressEvent,
-    StreamProgressStage,
-    StreamStartEvent,
+    QueryProgressStage,
+    QueryStreamCompleteEvent,
+    QueryStreamDeltaEvent,
+    QueryStreamFailedEvent,
+    QueryStreamProgressEvent,
+    QueryStreamStartEvent,
     UploadResponse,
     UploadStreamCompleteEvent,
     UploadStreamFailedEvent,
@@ -354,12 +354,12 @@ async def query_stream(
         def _queue_event(payload: dict[str, object]) -> None:
             event_queue.put(payload)
 
-        def _emit_progress(stage: StreamProgressStage, message: str) -> None:
+        def _emit_progress(stage: QueryProgressStage, message: str) -> None:
             # Track first progress timestamp per stage for lightweight observability.
             if stage not in timings_ms:
                 timings_ms[stage] = int((perf_counter() - started_at) * 1000)
             _queue_event(
-                StreamProgressEvent(
+                QueryStreamProgressEvent(
                     request_id=request_id,
                     sequence=_next_sequence(),
                     timestamp_ms=_timestamp_ms(),
@@ -375,7 +375,7 @@ async def query_stream(
             if "first_token_ms" not in timings_ms:
                 timings_ms["first_token_ms"] = int((perf_counter() - started_at) * 1000)
             _queue_event(
-                StreamDeltaEvent(
+                QueryStreamDeltaEvent(
                     request_id=request_id,
                     sequence=_next_sequence(),
                     timestamp_ms=_timestamp_ms(),
@@ -384,7 +384,7 @@ async def query_stream(
             )
 
         _queue_event(
-            StreamStartEvent(
+            QueryStreamStartEvent(
                 request_id=request_id,
                 sequence=_next_sequence(),
                 timestamp_ms=_timestamp_ms(),
@@ -436,7 +436,7 @@ async def query_stream(
             logger.warning("/query/stream endpoint exception: %s", final_error)
             yield (
                 json.dumps(
-                    StreamFailedEvent(
+                    QueryStreamFailedEvent(
                         request_id=request_id,
                         sequence=_next_sequence(),
                         timestamp_ms=_timestamp_ms(),
@@ -450,7 +450,7 @@ async def query_stream(
         if final_payload is None:
             yield (
                 json.dumps(
-                    StreamFailedEvent(
+                    QueryStreamFailedEvent(
                         request_id=request_id,
                         sequence=_next_sequence(),
                         timestamp_ms=_timestamp_ms(),
@@ -463,7 +463,7 @@ async def query_stream(
 
         yield (
             json.dumps(
-                StreamCompleteEvent(
+                QueryStreamCompleteEvent(
                     request_id=request_id,
                     sequence=_next_sequence(),
                     timestamp_ms=_timestamp_ms(),
