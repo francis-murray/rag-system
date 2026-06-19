@@ -147,8 +147,9 @@ The frontend calls internal Next.js API routes:
 - `GET /api/documents` → proxies to backend `GET /documents`
 - `GET /api/documents/{document_id}/file` → proxies to backend `GET /documents/{document_id}/file` (PDF bytes)
 - `POST /api/upload` → proxies multipart form-data to backend `POST /upload`
+- `POST /api/upload/stream` → proxies multipart form-data to backend `POST /upload/stream` (NDJSON stream; used by the web UI to display upload and indexing progress)
 - `POST /api/query` → validates payload and proxies to backend `POST /query`
-- `POST /api/query/stream` → validates payload and proxies to backend `POST /query/stream` (NDJSON stream)
+- `POST /api/query/stream` → validates payload and proxies to backend `POST /query/stream` (NDJSON stream; used by the web UI to stream LLM answers and display query progress)
 
 ---
 
@@ -156,7 +157,7 @@ The frontend calls internal Next.js API routes:
 
 - The first time you run the CLI or API, the app downloads cross-encoder weights (about 80 MB) and Docling layout models on first PDF conversion. By default Hugging Face cache is `~/.cache/huggingface/hub` on macOS and Linux.
 - The vector store and reranker are created once when the process starts and reused for later queries. The HTTP server does this in the FastAPI `lifespan` hook; the CLI does it before the interactive loop. Indexing uses a persistent Chroma database under `data/index/chroma_vector_store/`. A SQLite manifest at `data/index/ingest_manifest.db` tracks each successfully indexed PDF (fingerprint of file bytes + ingest settings, plus expected chunk count). On re-upload, Docling is skipped entirely when the fingerprint and chunk count match; otherwise stale chunks are pruned and only new or changed chunks are re-embedded.
-- `POST /upload` saves a **PDF** under `data/pdf_documents/` and appends that file’s chunks to the same in-memory vector store used by `/query`, so new uploads are searchable without restarting. Dropping files manually into the folder outside of `/upload` still requires a process restart to index them.
+- Upload endpoints save a **PDF** under `data/pdf_documents/` and append that file’s chunks to the same in-memory vector store used by `/query`, so new uploads are searchable without restarting. The web UI uses `POST /upload/stream` to display incremental progress during save, Docling parse, and indexing; `POST /upload` remains available for simple synchronous clients. Dropping files manually into the folder outside of upload still requires a process restart to index them.
 
 ## Backend API Endpoints
 
@@ -202,6 +203,56 @@ Example (Next.js proxy):
 
 ```bash
 curl -X POST http://127.0.0.1:3000/api/upload \
+  -F "file=@/path/to/document.pdf"
+```
+
+---
+
+### `POST /upload/stream`
+
+Accepts the same `multipart/form-data` request as `POST /upload` (field name `file`, PDF only) but streams newline-delimited JSON (`application/x-ndjson`) progress events while the file is saved, parsed with Docling, and indexed.
+
+Validation errors return **400** with a JSON `detail` string before the stream starts (same rules as `POST /upload`).
+
+Response (NDJSON: one JSON object per line):
+
+The JSON below is **pretty-printed** for readability. On the wire, each event is **one line of compact JSON**, then a newline before the next event.
+
+- `**progress**` — pipeline milestones. `stage` is one of `saving`, `parsing`, or `indexing`.
+  ```json
+  {
+    "type": "progress",
+    "stage": "parsing",
+    "message": "Parsing PDF with Docling..."
+  }
+  ```
+- `**complete**` — terminal success line with the indexed document identifiers (same shape as `POST /upload`).
+  ```json
+  {
+    "type": "complete",
+    "document_id": "document.pdf",
+    "filename": "document.pdf"
+  }
+  ```
+- `**failed**` — terminal error line with a user-safe `message`.
+  ```json
+  {
+    "type": "failed",
+    "message": "Indexing failed."
+  }
+  ```
+
+Example (backend endpoint):
+
+```bash
+curl -N -X POST http://127.0.0.1:8000/upload/stream \
+  -F "file=@/path/to/document.pdf"
+```
+
+Example (Next.js proxy endpoint):
+
+```bash
+curl -N -X POST http://127.0.0.1:3000/api/upload/stream \
   -F "file=@/path/to/document.pdf"
 ```
 
@@ -303,6 +354,7 @@ Response:
           ]
         }
       ],
+      "headings": ["Chapter 1", "Introduction"],
       "content": "Supporting passage text..."
     }
   ],
@@ -405,6 +457,7 @@ The JSON below is **pretty-printed** so the fields are easy to scan. On the wire
               ]
             }
           ],
+          "headings": ["Chapter 1", "Introduction"],
           "content": "Supporting passage text..."
         }
       ],
@@ -469,7 +522,7 @@ curl -N -X POST http://127.0.0.1:3000/api/query/stream \
 4. A query retrieves the top candidate chunks by vector similarity.
 5. A cross-encoder reranks candidates and selects the top chunks.
 6. The LLM answers using only the selected context.
-7. The response includes inline citations, cited source chunks (with `locations` for client-side PDF highlighting), and optional RAG LLM token usage from the provider.
+7. The response includes inline citations, cited source chunks (with `locations` for client-side PDF highlighting and optional `headings` from Docling section context), and optional RAG LLM token usage from the provider.
 
 ## Project Structure
 
@@ -491,7 +544,7 @@ backend/
     main.py                                # FastAPI app entry point
 frontend/
   app/
-    api/                                   # Next.js proxy routes (health, documents, documents/{id}/file, upload, query, stream)
+    api/                                   # Next.js proxy routes (health, documents, documents/{id}/file, upload, upload/stream, query, query/stream)
     page.tsx                               # Home page: 3-panel layout, streaming, upload/query orchestration
     layout.tsx                             # App shell and metadata
   components/
