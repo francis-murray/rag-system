@@ -45,16 +45,17 @@ export function FileExplorerPanel({
       </h2>
 
       {/* File Explorer */}
-      {documents.length === 0 ? (
-        <p className={`mt-1.5 text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
-          No uploaded documents yet.
-        </p>
-      ) : (
-        <ul
-          className={`mt-1 min-h-0 flex-1 overflow-y-auto rounded-xl p-1 ${
-            isDark ? "bg-slate-950/35" : "bg-slate-100"
-          }`}
-        >
+      <div className="mt-1.5 min-h-0 flex-1">
+        {documents.length === 0 ? (
+          <p className={`text-sm ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+            No uploaded documents yet.
+          </p>
+        ) : (
+          <ul
+            className={`h-full min-h-0 overflow-y-auto rounded-xl p-1 ${
+              isDark ? "bg-slate-950/35" : "bg-slate-100"
+            }`}
+          >
           {documents.map((document) => {
             const isSelected = document.document_id === selectedDocumentId;
             return (
@@ -84,8 +85,9 @@ export function FileExplorerPanel({
               </li>
             );
           })}
-        </ul>
-      )}
+          </ul>
+        )}
+      </div>
 
       {/* Upload progress messages */}
       {uploadProgressMessages.length > 0 && (
@@ -111,7 +113,7 @@ export function FileExplorerPanel({
       )}
 
       {/* Upload file form */}
-      <form onSubmit={onUploadSubmit} className="pt-1 lg:mt-auto">
+      <form onSubmit={onUploadSubmit} className="pt-1">
         <label htmlFor="upload-file-input" className="sr-only">
           Choose a file to upload
         </label>
