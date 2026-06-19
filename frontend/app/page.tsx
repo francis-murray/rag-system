@@ -6,7 +6,7 @@ import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, LlmUsage, 
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentViewer } from "@/components/document-viewer/DocumentViewer";
-import { ThemeToggle } from "@/components/header/ThemeToggle";
+import { AppHeader } from "@/components/header/AppHeader";
 
 const INITIAL_LOADING_MESSAGE = "Starting retrieval pipeline...";
 
@@ -611,27 +611,10 @@ export default function Home() {
       style={layoutStyle}
     >
       {/* Header spans all grid columns on desktop (five tracks including gutters). */}
-      <header
-        className={`min-w-0 rounded-2xl border px-4 py-2.5 lg:col-span-5 ${
-          isDark
-            ? "border-sky-400/20 bg-slate-900/65 shadow-[0_10px_30px_rgba(2,6,23,0.45)] backdrop-blur-xl"
-            : "border-slate-300 bg-white shadow-sm"
-        }`}
-      >
-        <div className="flex items-center justify-between gap-3">
-          <p
-            className={`text-[11px] font-semibold uppercase tracking-[0.2em] ${
-              isDark ? "text-sky-200/90" : "text-slate-700"
-            }`}
-          >
-            RAG System
-          </p>
-          <ThemeToggle
-            isDark={isDark}
-            onToggle={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
-          />
-        </div>
-      </header>
+      <AppHeader
+        isDark={isDark}
+        onToggleTheme={() => setTheme((current) => (current === "dark" ? "light" : "dark"))}
+      />
 
       {/* Left column: uploaded document list + upload form. */}
       <FileExplorerPanel
