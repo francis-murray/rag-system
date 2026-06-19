@@ -87,6 +87,14 @@ class HealthResponse(BaseModel):
     status: str = Field(description="Service health status.")
 
 
+class SettingsModelsResponse(BaseModel):
+    """Response body for GET /settings/models."""
+
+    rag: str = Field(description="LLM used for answer generation.")
+    embedding: str = Field(description="Embedding model used for retrieval.")
+    reranker: str = Field(description="Cross-encoder model used for reranking.")
+
+
 class DocumentItem(BaseModel):
     document_id: str = Field(description="PDF basename on disk.")
     filename: str = Field(description="PDF basename on disk.")

@@ -21,6 +21,7 @@ from backend.app.schemas import (
     QueryRequest,
     QueryResponse,
     QueryProgressStage,
+    SettingsModelsResponse,
     QueryStreamCompleteEvent,
     QueryStreamDeltaEvent,
     QueryStreamFailedEvent,
@@ -297,6 +298,18 @@ async def upload_stream(request: Request, file: UploadFile = File(...)) -> Strea
 async def health() -> HealthResponse:
     """Health check endpoint for uptime and readiness probes."""
     return HealthResponse(status="ok")
+
+
+@router.get("/settings/models", status_code=status.HTTP_200_OK)
+async def settings_models(
+    settings: RagSettings = Depends(get_rag_settings),
+) -> SettingsModelsResponse:
+    """Return the runtime models configured for the RAG pipeline."""
+    return SettingsModelsResponse(
+        rag=settings.models.rag,
+        embedding=settings.models.embedding,
+        reranker=settings.models.reranker,
+    )
 
 
 @router.post("/query", status_code=status.HTTP_200_OK)

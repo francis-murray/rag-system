@@ -11,9 +11,10 @@ A Python retrieval-augmented generation (RAG) system for answering questions ove
 - Citation-aware answer generation with supporting source chunks
 - Centralized RAG configuration via `rag.yaml` (models, retrieval, indexing, prompt name)
 - Versioned prompt configuration
-- FastAPI endpoints for health checks, PDF upload, document listing, document file serving, and RAG queries
+- FastAPI endpoints for health checks, runtime model settings, PDF upload, document listing, document file serving, and RAG queries
 - Next.js API proxy routes for corresponding backend endpoints
 - Next.js frontend with a three-panel layout: document list and upload, PDF viewer with citation navigation, streaming chat, and per-answer LLM token usage
+- Header API reachability indicator and settings drawer showing active RAG pipeline models
 - Interactive command-line query loop
 - Offline RAG evaluation with ragas metrics (faithfulness, factual correctness, retrieval quality)
 - File and console logging
@@ -144,6 +145,7 @@ http://127.0.0.1:3000
 The frontend calls internal Next.js API routes:
 
 - `GET /api/health` → proxies to backend `GET /health`
+- `GET /api/settings/models` → proxies to backend `GET /settings/models`
 - `GET /api/documents` → proxies to backend `GET /documents`
 - `GET /api/documents/{document_id}/file` → proxies to backend `GET /documents/{document_id}/file` (PDF bytes)
 - `POST /api/upload` → proxies multipart form-data to backend `POST /upload`
@@ -170,6 +172,40 @@ Returns service health:
   "status": "ok"
 }
 ```
+
+This is a lightweight liveness check (the API process is up). It does not verify external dependencies such as the vector store, reranker weights, or OpenAI connectivity.
+
+---
+
+### `GET /settings/models`
+
+Returns the runtime RAG pipeline models loaded from `rag.yaml` at process startup (`app.state.rag_settings`). Excludes the `evaluation` model, which is used only by the offline eval CLI.
+
+Response (JSON):
+
+```json
+{
+  "rag": "<rag-model>",
+  "embedding": "<embedding-model>",
+  "reranker": "<reranker-model>"
+}
+```
+
+Values match `models.rag`, `models.embedding`, and `models.reranker` in `backend/app/config/rag.yaml`.
+
+Example:
+
+```bash
+curl http://127.0.0.1:8000/settings/models
+```
+
+Example (Next.js proxy):
+
+```bash
+curl http://127.0.0.1:3000/api/settings/models
+```
+
+Restart the API after editing `rag.yaml`; values are fixed for the lifetime of the process.
 
 ---
 
@@ -544,13 +580,19 @@ backend/
     main.py                                # FastAPI app entry point
 frontend/
   app/
-    api/                                   # Next.js proxy routes (health, documents, documents/{id}/file, upload, upload/stream, query, query/stream)
+    api/                                   # Next.js proxy routes (health, settings/models, documents, documents/{id}/file, upload, upload/stream, query, query/stream)
     page.tsx                               # Home page: 3-panel layout, streaming, upload/query orchestration
     layout.tsx                             # App shell and metadata
   components/
+    header/
+      AppHeader.tsx                        # Top bar: title, API status, settings gear, theme toggle
+      ApiStatusIndicator.tsx               # Checking / online / offline status dot and label
+      SettingsDrawer.tsx                   # Slide-over: API status + active models
+      ThemeToggle.tsx                      # Light / dark mode switch
+    document-viewer/
+      DocumentViewer.tsx                   # Center column: PDF viewer shell
+      PdfCanvas.tsx                        # react-pdf canvas + citation highlight overlays
     FileExplorerPanel.tsx                  # Left column: document list + upload
-    DocumentViewer.tsx                     # Center column: PDF viewer shell
-    PdfCanvas.tsx                          # react-pdf canvas + citation highlight overlays
     ChatPanel.tsx                          # Right column: streaming chat, clickable citations, usage and timing footers
   lib/                                     # Frontend config + shared types
 data/
