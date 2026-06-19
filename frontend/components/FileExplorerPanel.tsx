@@ -13,6 +13,8 @@ type FileExplorerPanelProps = {
   onUploadSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 };
 
+const DOCLING_PARSING_MESSAGE = "Parsing PDF with Docling...";
+
 export function FileExplorerPanel({
   isDark,
   documents,
@@ -22,6 +24,10 @@ export function FileExplorerPanel({
   uploadProgressMessages,
   onUploadSubmit,
 }: FileExplorerPanelProps) {
+  // Show the indeterminate bar only while Docling parsing is the current upload stage.
+  const isParsing =
+    uploadProgressMessages[uploadProgressMessages.length - 1] === DOCLING_PARSING_MESSAGE;
+
   return (
     <aside
       className={`flex min-h-0 min-w-0 flex-col gap-3 rounded-2xl border p-3 ${
@@ -89,6 +95,18 @@ export function FileExplorerPanel({
               {message}
             </p>
           ))}
+          {isParsing && (
+            <div
+              className={`mt-1 h-1 overflow-hidden rounded-full ${
+                isDark ? "bg-slate-700/50" : "bg-slate-200"
+              }`}
+            >
+              <div
+                className="h-full w-2/5 rounded-full bg-sky-500"
+                style={{ animation: "upload-indeterminate 1.5s ease-in-out infinite" }}
+              />
+            </div>
+          )}
         </div>
       )}
 
@@ -118,6 +136,13 @@ export function FileExplorerPanel({
           </button>
         </div>
       </form>
+
+      <style>{`
+        @keyframes upload-indeterminate {
+          0%   { transform: translateX(-150%); }
+          100% { transform: translateX(400%); }
+        }
+      `}</style>
     </aside>
   );
 }
