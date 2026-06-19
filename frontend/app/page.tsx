@@ -5,8 +5,8 @@ import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent } from "re
 import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, LlmUsage, QueryResponse, QueryStreamEvent, UploadResponse, UploadStreamEvent } from "@/lib/types";
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { ChatPanel } from "@/components/ChatPanel";
-import { DocumentViewer } from "@/components/DocumentViewer";
-import { ThemeToggle } from "@/components/ThemeToggle";
+import { DocumentViewer } from "@/components/document-viewer/DocumentViewer";
+import { ThemeToggle } from "@/components/header/ThemeToggle";
 
 const INITIAL_LOADING_MESSAGE = "Starting retrieval pipeline...";
 
