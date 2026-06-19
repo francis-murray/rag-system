@@ -171,3 +171,29 @@ class StreamFailedEvent(StreamEventBase):
     type: Literal["failed"] = "failed"
     code: Literal["internal_error"] = "internal_error"
     message: str = Field(description="User-safe error message.")
+
+
+UploadProgressStage = Literal["saving", "parsing", "indexing"]
+
+
+class UploadStreamProgressEvent(BaseModel):
+    """Progress milestone emitted during file save, Docling parse, or vector store indexing."""
+
+    type: Literal["progress"] = "progress"
+    stage: UploadProgressStage = Field(description="Current upload pipeline phase.")
+    message: str = Field(description="Human-readable progress message.")
+
+
+class UploadStreamCompleteEvent(BaseModel):
+    """Terminal success event emitted when the document has been fully indexed."""
+
+    type: Literal["complete"] = "complete"
+    document_id: str = Field(description="PDF basename on disk.")
+    filename: str = Field(description="PDF basename on disk.")
+
+
+class UploadStreamFailedEvent(BaseModel):
+    """Terminal failure event emitted when upload or indexing fails."""
+
+    type: Literal["failed"] = "failed"
+    message: str = Field(description="User-safe error message.")

@@ -2,7 +2,7 @@
 
 import { useEffect, useReducer, useRef, useState } from "react";
 import type { CSSProperties, FormEvent, MouseEvent as ReactMouseEvent } from "react";
-import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, LlmUsage, QueryResponse, StreamEvent, UploadResponse } from "@/lib/types";
+import { CitationTarget, CitedChunk, DocumentItem, DocumentsResponse, LlmUsage, QueryResponse, StreamEvent, UploadResponse, UploadStreamEvent } from "@/lib/types";
 import { FileExplorerPanel } from "@/components/FileExplorerPanel";
 import { ChatPanel } from "@/components/ChatPanel";
 import { DocumentViewer } from "@/components/DocumentViewer";
@@ -215,6 +215,7 @@ export default function Home() {
   const [streamState, dispatchStream] = useReducer(streamReducer, INITIAL_STREAM_STATE);
   const [isLoading, setIsLoading] = useState(false);
   const [isUploading, setIsUploading] = useState(false);
+  const [uploadProgressMessages, setUploadProgressMessages] = useState<string[]>([]);
   const [files, setFiles] = useState<DocumentItem[]>([]);
   // Resizable 3-column layout on desktop (explorer | preview | chat); widths reset on refresh.
   const [leftWidth, setLeftWidth] = useState(DEFAULT_LEFT_WIDTH);
@@ -436,34 +437,66 @@ export default function Home() {
   async function handleSubmitFile(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     setIsUploading(true);
+    setUploadProgressMessages([]);
 
     const form = event.currentTarget;
     const formData = new FormData(form);
 
     try {
-      const response = await fetch("/api/upload", {
+      const response = await fetch("/api/upload/stream", {
         method: "POST",
         body: formData,
       });
 
-      if (!response.ok) {
+      if (!response.ok || !response.body) {
         const errorBody = await response.json().catch(() => null);
         console.error("Upload failed:", response.status, errorBody);
         return;
       }
 
-      const data: UploadResponse = await response.json();
+      const reader = response.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
 
-      // Resetting the form clears the file input after a successful upload.
-      form.reset();
-      setFiles(await fetchFiles());
-      // Open the new upload in the viewer at page 1 (uses document_id from the upload response).
-      handleSelectDocument(data.document_id);
+      // Read NDJSON chunks from the upload stream and update UI per event.
+      while (true) {
+        // Pause here until the server sends the next chunk (or closes the stream).
+        const { done, value } = await reader.read();
+        if (done) {
+          buffer += decoder.decode();
+          break;
+        }
+        buffer += decoder.decode(value, { stream: true });
+        const lines = buffer.split("\n");
+        buffer = lines.pop() ?? "";
+
+        // One chunk can contain several NDJSON lines; handle each event in order.
+        for (const line of lines) {
+          if (!line.trim()) continue;
+          const uploadEvent = JSON.parse(line) as UploadStreamEvent;
+
+          if (uploadEvent.type === "progress") {
+            setUploadProgressMessages((prev) => {
+              if (prev[prev.length - 1] === uploadEvent.message) return prev;
+              return [...prev, uploadEvent.message];
+            });
+          } else if (uploadEvent.type === "complete") {
+            setUploadProgressMessages((prev) => [...prev, "All set — this document is searchable."]);
+            form.reset();
+            setFiles(await fetchFiles());
+            handleSelectDocument(uploadEvent.document_id);
+          } else if (uploadEvent.type === "failed") {
+            setUploadProgressMessages((prev) => [...prev, `Error: ${uploadEvent.message}`]);
+          }
+        }
+      }
     } catch {
       // Network failure, server down, or unexpected runtime issue.
       console.error("Network error while uploading file.");
     } finally {
       setIsUploading(false);
+      // Leave the full upload progress log on screen briefly, then clear it.
+      setTimeout(() => setUploadProgressMessages([]), 5000);
     }
   }
 
@@ -607,6 +640,7 @@ export default function Home() {
         selectedDocumentId={selectedDocumentId}
         onSelectDocument={handleSelectDocument}
         isUploading={isUploading}
+        uploadProgressMessages={uploadProgressMessages}
         onUploadSubmit={handleSubmitFile}
       />
 

@@ -9,6 +9,7 @@ type FileExplorerPanelProps = {
   selectedDocumentId: string | null;
   onSelectDocument: (documentId: string) => void;
   isUploading: boolean;
+  uploadProgressMessages: string[];
   onUploadSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
 };
 
@@ -18,6 +19,7 @@ export function FileExplorerPanel({
   selectedDocumentId,
   onSelectDocument,
   isUploading,
+  uploadProgressMessages,
   onUploadSubmit,
 }: FileExplorerPanelProps) {
   return (
@@ -79,6 +81,17 @@ export function FileExplorerPanel({
         </ul>
       )}
 
+      {/* Upload progress messages */}
+      {uploadProgressMessages.length > 0 && (
+        <div className={`space-y-1 ${isDark ? "text-slate-400" : "text-slate-500"}`}>
+          {uploadProgressMessages.map((message, idx) => (
+            <p key={`${message}-${idx}`} className="text-xs">
+              {message}
+            </p>
+          ))}
+        </div>
+      )}
+
       {/* Upload file form */}
       <form onSubmit={onUploadSubmit} className="pt-1 lg:mt-auto">
         <label htmlFor="upload-file-input" className="sr-only">
@@ -101,7 +114,7 @@ export function FileExplorerPanel({
             className="rounded-xl bg-sky-500 px-3.5 py-1.5 text-sm font-semibold text-sky-950 transition-all duration-200 ease-out hover:bg-sky-400 disabled:cursor-not-allowed disabled:opacity-60"
             disabled={isUploading}
           >
-            {isUploading ? "Uploading..." : "Upload File"}
+            {isUploading ? "Uploading & Indexing..." : "Upload File"}
           </button>
         </div>
       </form>

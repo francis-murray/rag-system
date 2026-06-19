@@ -27,6 +27,9 @@ from backend.app.schemas import (
     StreamProgressStage,
     StreamStartEvent,
     UploadResponse,
+    UploadStreamCompleteEvent,
+    UploadStreamFailedEvent,
+    UploadStreamProgressEvent,
 )
 from backend.app.services.rag_service import (
     add_document_to_vectorstore,
@@ -165,6 +168,129 @@ async def upload(request: Request, file: UploadFile = File(...)) -> UploadRespon
         document_id=safe_name,
         filename=safe_name,
     )
+
+
+@router.post("/upload/stream", status_code=status.HTTP_200_OK)
+async def upload_stream(request: Request, file: UploadFile = File(...)) -> StreamingResponse:
+    """Accept a PDF upload and stream NDJSON progress events for saving, parsing, and indexing."""
+
+    UPLOAD_DIR = get_project_root() / "data" / "pdf_documents"
+    UPLOAD_DIR.mkdir(exist_ok=True)
+
+    filename = file.filename
+    if not filename:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file must include a filename.",
+        )
+
+    safe_name = Path(filename).name
+
+    if not safe_name:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid filename; expected a non-empty base name.",
+        )
+
+    if not safe_name.lower().endswith(".pdf"):
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Uploaded file must be a PDF.",
+        )
+
+    # Finish receiving the whole file first, then start sending progress updates.
+    file_bytes = await file.read()
+    app = request.app
+
+    def event_stream():
+        """Generator that streams upload progress as NDJSON lines.
+
+        Writes the PDF to disk first, then starts a background thread to parse
+        and index it. The thread pushes progress events onto a queue via
+        ``on_progress``; this loop waits on the queue and yields each event
+        as one JSON line. When indexing finishes, yields a terminal ``failed``
+        or ``complete`` event. FastAPI sends each ``yield`` as one response
+        chunk when the client is ready to read more.
+        """
+        # Shared state: the queue bridges the worker thread and this generator.
+        event_queue: Queue[dict[str, object]] = Queue()
+        done_marker: dict[str, object] = {"_stream_worker_done": True}
+        final_error: Exception | None = None
+        final_safe_name: str | None = None
+
+        def _emit_progress(stage: str, message: str) -> None:
+            """Enqueue a progress event for the client stream."""
+            event_queue.put(
+                UploadStreamProgressEvent(stage=stage, message=message).model_dump()  # type: ignore[arg-type]
+            )
+
+        # Main thread: save the PDF before indexing so the file exists on disk.
+        _emit_progress("saving", "Saving PDF to disk...")
+        save_path = UPLOAD_DIR / safe_name
+        try:
+            with open(save_path, "wb") as buffer:
+                buffer.write(file_bytes)
+        except Exception as exc:
+            yield json.dumps(UploadStreamFailedEvent(message="Failed to save file.").model_dump()) + "\n"
+            logger.warning("/upload/stream: failed to save %s: %s", safe_name, exc)
+            return
+
+        def _worker() -> None:
+            """Parse and index the saved PDF, forwarding progress to the queue."""
+            nonlocal final_error, final_safe_name
+            try:
+                add_document_to_vectorstore(
+                    vector_store=app.state.vector_store,
+                    file_path=str(save_path),
+                    settings=app.state.rag_settings,
+                    document_converter=app.state.document_converter,
+                    on_progress=_emit_progress,
+                )
+                final_safe_name = safe_name
+            except Exception as exc:
+                final_error = exc
+            finally:
+                event_queue.put(done_marker)
+
+        # Background thread: parse and index while the generator streams progress below.
+        worker = Thread(target=_worker, daemon=True)
+        worker.start()
+
+        # Main thread: read progress events from the queue and yield them to the client.
+        while True:
+            try:
+                item = event_queue.get(timeout=0.25)
+            except Empty:
+                if not worker.is_alive():
+                    break
+                continue
+
+            if item is done_marker:
+                break
+
+            yield json.dumps(item) + "\n"
+
+        # Worker finished — emit a terminal failed or complete event.
+        if final_error is not None:
+            logger.warning("/upload/stream endpoint exception: %s", final_error)
+            yield json.dumps(UploadStreamFailedEvent(message="Indexing failed.").model_dump()) + "\n"
+            return
+
+        if final_safe_name is None:
+            yield json.dumps(UploadStreamFailedEvent(message="Upload completed without a result.").model_dump()) + "\n"
+            return
+
+        yield (
+            json.dumps(
+                UploadStreamCompleteEvent(
+                    document_id=final_safe_name,
+                    filename=final_safe_name,
+                ).model_dump()
+            )
+            + "\n"
+        )
+
+    return StreamingResponse(event_stream(), media_type="application/x-ndjson")
 
 
 @router.get("/health", status_code=status.HTTP_200_OK)

@@ -28,6 +28,7 @@ from backend.app.schemas import (
     DocumentItem,
     LlmUsage,
     StreamProgressStage,
+    UploadProgressStage,
 )
 from backend.app.services.docling_ingest import (
     build_document_converter,
@@ -64,6 +65,7 @@ class RagQueryResult(BaseModel):
 
 
 ProgressCallback = Callable[[StreamProgressStage, str], None]
+UploadProgressCallback = Callable[[UploadProgressStage, str], None]
 
 
 # Matches inline citations like "[1]" or "[12]" in the LLM answer.
@@ -338,6 +340,7 @@ def add_document_to_vectorstore(
     file_path: str,
     settings: RagSettings,
     document_converter: DocumentConverter,
+    on_progress: UploadProgressCallback | None = None,
 ) -> tuple[Chroma, list[str]]:
     """Parse, chunk, and upsert a single PDF into the vector store.
 
@@ -376,6 +379,8 @@ def add_document_to_vectorstore(
                     basename,
                     stored_chunk_count,
                 )
+                if on_progress is not None:
+                    on_progress("indexing", "Document already indexed, skipping.")
                 return vector_store, []
             logger.warning(
                 "Chroma chunk count mismatch for %s (expected %d, found %d) — re-indexing.",
@@ -393,9 +398,14 @@ def add_document_to_vectorstore(
     # exactly mirrors the new chunk set — deleting chunks that no longer exist
     # and embedding only chunks that are new or changed (same id = same content,
     # so unchanged chunks are skipped to avoid redundant embedding API calls).
+    if on_progress is not None:
+        on_progress("parsing", "Parsing PDF with Docling...")
     chunks = pdf_to_documents(file_path, settings, document_converter)
     chunk_ids = [deterministic_chunk_id(chunk) for chunk in chunks]
     new_ids = set(chunk_ids)
+
+    if on_progress is not None:
+        on_progress("parsing", f"Extracted {len(chunks)} chunk(s) from the document.")
 
     existing_ids = set(
         vector_store.get(where={"document_id": basename}, include=[])["ids"]
@@ -411,6 +421,11 @@ def add_document_to_vectorstore(
     chunks_to_add = [c for c, cid in zip(chunks, chunk_ids) if cid not in existing_ids]
     ids_to_add = [cid for cid in chunk_ids if cid not in existing_ids]
     if chunks_to_add:
+        if on_progress is not None:
+            on_progress(
+                "indexing",
+                f"Embedding and indexing {len(chunks_to_add)} new chunk(s)...",
+            )
         vector_store.add_documents(documents=chunks_to_add, ids=ids_to_add)
         logger.info(
             "Indexed %d new chunks from %s (%d unchanged).",

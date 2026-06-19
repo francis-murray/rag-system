@@ -96,3 +96,27 @@ export type StreamEvent =
   | StreamDeltaEvent
   | StreamCompleteEvent
   | StreamFailedEvent
+
+export type UploadProgressStage = "saving" | "parsing" | "indexing"
+
+export type UploadStreamProgressEvent = {
+  type: "progress"
+  stage: UploadProgressStage
+  message: string
+}
+
+export type UploadStreamCompleteEvent = {
+  type: "complete"
+  document_id: string
+  filename: string
+}
+
+export type UploadStreamFailedEvent = {
+  type: "failed"
+  message: string
+}
+
+export type UploadStreamEvent =
+  | UploadStreamProgressEvent
+  | UploadStreamCompleteEvent
+  | UploadStreamFailedEvent
