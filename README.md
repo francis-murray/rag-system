@@ -148,6 +148,7 @@ The frontend calls internal Next.js API routes:
 - `GET /api/settings/models` → proxies to backend `GET /settings/models`
 - `GET /api/documents` → proxies to backend `GET /documents`
 - `GET /api/documents/{document_id}/file` → proxies to backend `GET /documents/{document_id}/file` (PDF bytes)
+- `DELETE /api/documents/{document_id}` → proxies to backend `DELETE /documents/{document_id}`
 - `POST /api/upload` → proxies multipart form-data to backend `POST /upload`
 - `POST /api/upload/stream` → proxies multipart form-data to backend `POST /upload/stream` (NDJSON stream; used by the web UI to display upload and indexing progress)
 - `POST /api/query` → validates payload and proxies to backend `POST /query`
@@ -354,6 +355,33 @@ Example (Next.js proxy):
 
 ```bash
 curl -i "http://127.0.0.1:3000/api/documents/document.pdf/file"
+```
+
+---
+
+### `DELETE /documents/{document_id}`
+
+Permanently removes a document from all three stores in a safe order: Chroma vector chunks are deleted first (prevents ghost search results), the manifest row is removed second (clears the fast-path cache), and the PDF file is deleted last (the file remains recoverable until the index is clean).
+
+- `document_id` must be a safe basename (path traversal is rejected)
+- only `.pdf` files are supported
+
+Status codes:
+
+- `204` on success (no response body)
+- `400` for an invalid document id or unsupported file extension
+- `404` when the document does not exist
+
+Example:
+
+```bash
+curl -i -X DELETE "http://127.0.0.1:8000/documents/document.pdf"
+```
+
+Example (Next.js proxy):
+
+```bash
+curl -i -X DELETE "http://127.0.0.1:3000/api/documents/document.pdf"
 ```
 
 ---

@@ -225,6 +225,7 @@ export default function Home() {
   const mainRef = useRef<HTMLElement | null>(null);
 
   const [selectedDocumentId, setSelectedDocumentId] = useState<string | null>(null);
+  const [deletingDocumentId, setDeletingDocumentId] = useState<string | null>(null);
   // Set when a citation card is clicked; PdfCanvas scrolls to chunk.page.
   const [citationTarget, setCitationTarget] = useState<CitationTarget | null>(null);
   // Updated on each explorer click so the viewer resets to page 1,
@@ -513,6 +514,33 @@ export default function Home() {
     setViewerResetNonce(Date.now()); // new value triggers scroll-to-top in PdfCanvas
   }
 
+  async function handleDeleteDocument(documentId: string) {
+    const doc = files.find((f) => f.document_id === documentId);
+    const label = doc?.filename ?? documentId;
+    if (!window.confirm(`Delete "${label}"? This cannot be undone.`)) return;
+
+    setDeletingDocumentId(documentId);
+    try {
+      const response = await fetch(`/api/documents/${encodeURIComponent(documentId)}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        console.error("Delete failed:", response.status);
+        return;
+      }
+      const updated = await fetchFiles();
+      setFiles(updated);
+      if (selectedDocumentId === documentId) {
+        setSelectedDocumentId(null);
+        setCitationTarget(null);
+      }
+    } catch {
+      console.error("Network error while deleting document.");
+    } finally {
+      setDeletingDocumentId(null);
+    }
+  }
+
   // Runs when the user submits the form.
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     // Prevent the browser's default full-page form submit.
@@ -622,6 +650,8 @@ export default function Home() {
         documents={files}
         selectedDocumentId={selectedDocumentId}
         onSelectDocument={handleSelectDocument}
+        onDeleteDocument={handleDeleteDocument}
+        deletingDocumentId={deletingDocumentId}
         isUploading={isUploading}
         uploadProgressMessages={uploadProgressMessages}
         onUploadSubmit={handleSubmitFile}

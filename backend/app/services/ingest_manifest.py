@@ -50,6 +50,19 @@ def get_manifest_entry(
     return (row[0], row[1]) if row else None
 
 
+def delete_manifest_entry(db_path: Path, document_id: str) -> bool:
+    """Delete the manifest entry for *document_id*. Returns True if a row was removed."""
+    with sqlite3.connect(db_path) as conn:
+        cursor = conn.execute(
+            "DELETE FROM ingest_manifest WHERE document_id = ?",
+            (document_id,),
+        )
+    removed = cursor.rowcount > 0
+    if removed:
+        logger.debug("Manifest entry deleted: %s", document_id)
+    return removed
+
+
 def set_manifest_entry(
     db_path: Path,
     document_id: str,

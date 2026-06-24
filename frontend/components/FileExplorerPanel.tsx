@@ -8,6 +8,8 @@ type FileExplorerPanelProps = {
   documents: DocumentItem[];
   selectedDocumentId: string | null;
   onSelectDocument: (documentId: string) => void;
+  onDeleteDocument: (documentId: string) => void;
+  deletingDocumentId: string | null;
   isUploading: boolean;
   uploadProgressMessages: string[];
   onUploadSubmit: (event: FormEvent<HTMLFormElement>) => Promise<void>;
@@ -20,6 +22,8 @@ export function FileExplorerPanel({
   documents,
   selectedDocumentId,
   onSelectDocument,
+  onDeleteDocument,
+  deletingDocumentId,
   isUploading,
   uploadProgressMessages,
   onUploadSubmit,
@@ -58,16 +62,17 @@ export function FileExplorerPanel({
           >
           {documents.map((document) => {
             const isSelected = document.document_id === selectedDocumentId;
+            const isDeleting = document.document_id === deletingDocumentId;
             return (
               <li
                 key={document.document_id}
-                className="text-sm text-slate-300 transition-colors"
+                className="group flex items-center text-sm text-slate-300 transition-colors"
               >
                 <button
                   type="button"
                   onClick={() => onSelectDocument(document.document_id)}
                   title={document.filename}
-                  className={`flex w-full items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-all duration-200 ease-out ${
+                  className={`flex min-w-0 flex-1 items-center gap-2 rounded-lg px-2.5 py-1.5 text-left text-xs transition-all duration-200 ease-out ${
                     isSelected
                       ? isDark
                         ? "bg-sky-500/20 text-sky-50 shadow-sm shadow-sky-500/20"
@@ -81,6 +86,30 @@ export function FileExplorerPanel({
                     📄
                   </span>
                   <span className="min-w-0 flex-1 truncate">{document.filename}</span>
+                </button>
+                <button
+                  type="button"
+                  aria-label={`Delete ${document.filename}`}
+                  title={`Delete ${document.filename}`}
+                  disabled={isDeleting || isUploading}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onDeleteDocument(document.document_id);
+                  }}
+                  className={`ml-0.5 flex shrink-0 items-center justify-center rounded p-1 text-xs opacity-0 transition-all duration-150 group-hover:opacity-100 group-focus-within:opacity-100 focus-visible:opacity-100 disabled:cursor-not-allowed disabled:opacity-30 ${
+                    isDark
+                      ? "text-slate-500 hover:bg-slate-700/60 hover:text-red-400"
+                      : "text-slate-400 hover:bg-red-50 hover:text-red-500"
+                  }`}
+                >
+                  {isDeleting ? (
+                    <span className="block h-3 w-3 animate-spin rounded-full border border-current border-t-transparent" aria-hidden="true" />
+                  ) : (
+                    <svg aria-hidden="true" viewBox="0 0 10 10" className="h-3 w-3" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round">
+                      <line x1="1.5" y1="1.5" x2="8.5" y2="8.5" />
+                      <line x1="8.5" y1="1.5" x2="1.5" y2="8.5" />
+                    </svg>
+                  )}
                 </button>
               </li>
             );

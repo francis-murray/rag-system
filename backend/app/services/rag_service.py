@@ -37,6 +37,7 @@ from backend.app.services.docling_ingest import (
     pdf_to_documents,
 )
 from backend.app.services.ingest_manifest import (
+    delete_manifest_entry,
     get_manifest_entry,
     get_manifest_path,
     init_manifest_db,
@@ -117,6 +118,50 @@ def document_item_from_pdf_path(file_path: str) -> DocumentItem:
         document_id=basename,
         filename=basename,
     )
+
+
+def remove_document(vector_store: Chroma, document_id: str) -> int:
+    """Remove a document completely from Chroma, the manifest, and disk.
+
+    Deletion order is intentional: Chroma first (prevents ghost search results
+    if later steps fail), manifest second (clears fast-path cache), PDF last
+    (file stays recoverable until the index is clean).
+
+    Args:
+        vector_store: The shared Chroma instance.
+        document_id: The PDF basename, e.g. ``"report.pdf"``.
+
+    Returns:
+        Number of Chroma chunks that were deleted.
+
+    Raises:
+        ValueError: If ``document_id`` fails the path-safety check.
+        FileNotFoundError: If the PDF does not exist on disk.
+    """
+    safe_name = Path(document_id).name
+    if safe_name != document_id or not safe_name.lower().endswith(".pdf"):
+        raise ValueError(f"Invalid document_id: {document_id!r}")
+
+    pdf_dir = get_default_pdf_dir()
+    file_path = (pdf_dir / safe_name).resolve()
+    if pdf_dir.resolve() not in file_path.parents:
+        raise ValueError(f"Invalid document_id: {document_id!r}")
+
+    if not file_path.is_file():
+        raise FileNotFoundError(f"Document not found: {safe_name}")
+
+    chunk_ids = vector_store.get(where={"document_id": safe_name}, include=[])["ids"]
+    if chunk_ids:
+        vector_store.delete(ids=list(chunk_ids))
+        logger.info("Deleted %d Chroma chunk(s) for %s.", len(chunk_ids), safe_name)
+
+    db_path = get_manifest_path()
+    delete_manifest_entry(db_path, safe_name)
+
+    file_path.unlink()
+    logger.info("Deleted PDF file %s.", safe_name)
+
+    return len(chunk_ids)
 
 
 def build_index(

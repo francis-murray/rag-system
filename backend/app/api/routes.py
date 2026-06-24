@@ -37,6 +37,7 @@ from backend.app.services.rag_service import (
     document_item_from_pdf_path,
     get_default_pdf_dir,
     get_default_pdf_paths,
+    remove_document,
     run_rag_query,
 )
 
@@ -116,6 +117,27 @@ async def get_document_file(document_id: str) -> FileResponse:
         media_type="application/pdf",
         headers={"Content-Disposition": f'inline; filename="{safe_name}"'},
     )
+
+
+@router.delete("/documents/{document_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_document(
+    document_id: str,
+    vector_store: Chroma = Depends(get_vector_store),
+) -> None:
+    """Delete a document from disk, the Chroma vector store, and the ingest manifest."""
+    try:
+        chunk_count = remove_document(vector_store, document_id)
+        logger.info("Document %s deleted (%d chunk(s) removed).", document_id, chunk_count)
+    except ValueError:
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail="Invalid document id.",
+        )
+    except FileNotFoundError:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail="Document not found.",
+        )
 
 
 @router.post("/upload")
