@@ -30,6 +30,9 @@ ENV UV_PROJECT_ENVIRONMENT=.venv-docker
 # Install Ruff as a standalone command-line tool on PATH (not the project venv)
 RUN UV_TOOL_BIN_DIR=/usr/local/bin uv tool install ruff
 
+# Install Claude Code globally
+RUN npm install -g @anthropic-ai/claude-code
+
 # Install firewall script system-wide (root-owned) so appuser cannot modify
 # a script it is allowed to run as root via passwordless sudo.
 COPY init-firewall.sh /usr/local/bin/init-firewall.sh
@@ -55,4 +58,5 @@ WORKDIR /rag-system
 RUN mkdir -p frontend/node_modules \
     /home/appuser/.cache/uv \
     /home/appuser/.cache/huggingface \
-    /home/appuser/.cache/tiktoken
+    /home/appuser/.cache/tiktoken \
+    /home/appuser/.claude

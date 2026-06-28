@@ -14,7 +14,9 @@
   ],
   "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
   "containerEnv": {
-    "TIKTOKEN_CACHE_DIR": "/home/appuser/.cache/tiktoken"
+    "TIKTOKEN_CACHE_DIR": "/home/appuser/.cache/tiktoken",
+    "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
+    "DISABLE_AUTOUPDATER": "1"
   },
   "postCreateCommand": "uv sync && npm --prefix frontend ci && uv run python -m backend.app.prefetch_models",
   "mounts": [
@@ -22,7 +24,8 @@
     "source=rag_uv_cache,target=/home/appuser/.cache/uv,type=volume",
     "source=rag_huggingface_cache,target=/home/appuser/.cache/huggingface,type=volume",
     "source=rag_tiktoken_cache,target=/home/appuser/.cache/tiktoken,type=volume",
-    "source=rag_frontend_node_modules,target=/rag-system/frontend/node_modules,type=volume"
+    "source=rag_frontend_node_modules,target=/rag-system/frontend/node_modules,type=volume",
+    "source=claude-code-config,target=/home/appuser/.claude,type=volume"
   ],
   "customizations": {
     "vscode": {

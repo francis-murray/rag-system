@@ -208,6 +208,7 @@ The image includes:
 - build-essential
 - curl
 - iptables, ipset, dnsutils, aggregate, jq, sudo (for the egress firewall)
+- Claude Code (`@anthropic-ai/claude-code`)
 
 The image runs as a non-root user (`appuser`, UID 1000) rather than root.
 
@@ -237,6 +238,7 @@ docker run -d \
   -v rag_huggingface_cache:/home/appuser/.cache/huggingface \
   -v rag_tiktoken_cache:/home/appuser/.cache/tiktoken \
   -v rag_frontend_node_modules:/rag-system/frontend/node_modules \
+  -v claude-code-config:/home/appuser/.claude \
   -w /rag-system \
   rag-system-image \
   sleep infinity
@@ -421,6 +423,7 @@ The devcontainer runs an `iptables`-based default-deny egress firewall, applied 
 | Loopback | Local inter-process communication |
 | SSH (TCP 22) | git over SSH |
 | Host network (`/24`) | VS Code server, port forwards |
+| `api.anthropic.com` | Claude Code |
 | `api.openai.com` | Embeddings, chat, and eval at runtime |
 | `registry.npmjs.org` | `npm install` |
 | `pypi.org`, `files.pythonhosted.org` | `uv`/`pip install` |
@@ -487,7 +490,8 @@ docker volume rm \
   rag_uv_cache \
   rag_huggingface_cache \
   rag_tiktoken_cache \
-  rag_frontend_node_modules
+  rag_frontend_node_modules \
+  claude-code-config
 ```
 
 Use this for a completely clean reset, including:
@@ -496,4 +500,5 @@ Use this for a completely clean reset, including:
 - Hugging Face model cache
 - tiktoken encoding cache
 - frontend `node_modules`
+- Claude Code configuration
 

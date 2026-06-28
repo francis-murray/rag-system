@@ -7,6 +7,7 @@
 #
 # Allowlist:
 #   - DNS, loopback, SSH, host network (devcontainer/VS Code plumbing)
+#   - api.anthropic.com     (Claude Code)
 #   - api.openai.com        (embeddings, chat, and eval at runtime)
 #   - registry.npmjs.org    (npm install)
 #   - pypi.org              (uv/pip install)
@@ -88,6 +89,7 @@ done < <(echo "$gh_ranges" | jq -r '(.web + .api + .git)[]' | aggregate -q)
 
 # Resolve and add other allowed domains
 for domain in \
+  "api.anthropic.com" \
   "api.openai.com" \
   "registry.npmjs.org" \
   "pypi.org" \
