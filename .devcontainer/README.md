@@ -239,6 +239,10 @@ docker run -d \
   -v rag_tiktoken_cache:/home/appuser/.cache/tiktoken \
   -v rag_frontend_node_modules:/rag-system/frontend/node_modules \
   -v claude-code-config:/home/appuser/.claude \
+  -e TIKTOKEN_CACHE_DIR=/home/appuser/.cache/tiktoken \
+  -e HF_HUB_OFFLINE=1 \
+  -e CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
+  -e DISABLE_AUTOUPDATER=1 \
   -w /rag-system \
   rag-system-image \
   sleep infinity
