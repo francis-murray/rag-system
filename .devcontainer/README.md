@@ -201,9 +201,12 @@ The image includes:
 - Node.js 22.x
 - npm
 - uv
+- ruff
 - git
 - build-essential
 - curl
+
+The image runs as a non-root user (`appuser`, UID 1000) rather than root.
 
 Rebuild the image when:
 
@@ -219,11 +222,12 @@ First-time setup:
 ```bash
 docker run -d \
   --name rag-system-container \
+  --cap-drop=ALL \
   -p 3000:3000 \
   -p 8000:8000 \
   -v "$(pwd):/rag-system" \
-  -v rag_uv_cache:/root/.cache/uv \
-  -v rag_huggingface_cache:/root/.cache/huggingface \
+  -v rag_uv_cache:/home/appuser/.cache/uv \
+  -v rag_huggingface_cache:/home/appuser/.cache/huggingface \
   -v rag_frontend_node_modules:/rag-system/frontend/node_modules \
   -w /rag-system \
   rag-system-image \
