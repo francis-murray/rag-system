@@ -37,4 +37,5 @@ WORKDIR /rag-system
 # Pre-create mount points so the named volumes inherit appuser ownership
 RUN mkdir -p frontend/node_modules \
     /home/appuser/.cache/uv \
-    /home/appuser/.cache/huggingface
+    /home/appuser/.cache/huggingface \
+    /home/appuser/.cache/tiktoken

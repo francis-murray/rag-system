@@ -84,6 +84,7 @@ The Dev Containers extension automatically:
 - starts the container
 - mounts the workspace and persistent volumes
 - installs backend and frontend dependencies
+- pre-downloads model weights into the persistent cache
 
 ---
 
@@ -228,6 +229,7 @@ docker run -d \
   -v "$(pwd):/rag-system" \
   -v rag_uv_cache:/home/appuser/.cache/uv \
   -v rag_huggingface_cache:/home/appuser/.cache/huggingface \
+  -v rag_tiktoken_cache:/home/appuser/.cache/tiktoken \
   -v rag_frontend_node_modules:/rag-system/frontend/node_modules \
   -w /rag-system \
   rag-system-image \
@@ -426,6 +428,7 @@ Use this to force a full rebuild or reclaim disk space.
 docker volume rm \
   rag_uv_cache \
   rag_huggingface_cache \
+  rag_tiktoken_cache \
   rag_frontend_node_modules
 ```
 
@@ -433,5 +436,6 @@ Use this for a completely clean reset, including:
 
 - cached Python packages
 - Hugging Face model cache
+- tiktoken encoding cache
 - frontend `node_modules`
 
