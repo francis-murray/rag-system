@@ -85,6 +85,7 @@ The Dev Containers extension automatically:
 - mounts the workspace and persistent volumes
 - installs backend and frontend dependencies
 - pre-downloads model weights into the persistent cache
+- applies the egress firewall (see [Egress Firewall](#egress-firewall) below)
 
 ---
 
@@ -206,6 +207,7 @@ The image includes:
 - git
 - build-essential
 - curl
+- iptables, ipset, dnsutils, aggregate, jq, sudo (for the egress firewall)
 
 The image runs as a non-root user (`appuser`, UID 1000) rather than root.
 
@@ -224,6 +226,10 @@ First-time setup:
 docker run -d \
   --name rag-system-container \
   --cap-drop=ALL \
+  --cap-add=NET_ADMIN \
+  --cap-add=NET_RAW \
+  --cap-add=SETUID \
+  --cap-add=SETGID \
   -p 3000:3000 \
   -p 8000:8000 \
   -v "$(pwd):/rag-system" \
@@ -243,6 +249,13 @@ This command:
 - exposes frontend and backend ports
 - persists dependency and model caches across sessions
 - keeps the container running in the background
+- grants `NET_ADMIN`, `NET_RAW`, `SETUID`, and `SETGID` capabilities required by the egress firewall
+
+After starting the container, apply the egress firewall manually (see [Egress Firewall](#egress-firewall) below):
+
+```bash
+docker exec rag-system-container sudo /usr/local/bin/init-firewall.sh
+```
 
 For later sessions, if the container already exists but is stopped:
 
@@ -393,6 +406,51 @@ Ctrl + D
 ```bash
 docker stop rag-system-container
 ```
+
+---
+
+# Egress Firewall
+
+The devcontainer runs an `iptables`-based default-deny egress firewall, applied automatically on every container start via `postStartCommand`. This prevents arbitrary outbound connections from the container (e.g. from an agent session) while still allowing the tools and services the project actually needs.
+
+## What is allowed
+
+| Destination | Purpose |
+|---|---|
+| DNS (UDP 53) | Name resolution |
+| Loopback | Local inter-process communication |
+| SSH (TCP 22) | git over SSH |
+| Host network (`/24`) | VS Code server, port forwards |
+| `api.openai.com` | Embeddings, chat, and eval at runtime |
+| `registry.npmjs.org` | `npm install` |
+| `pypi.org`, `files.pythonhosted.org` | `uv`/`pip install` |
+| `download.pytorch.org` | CPU torch on aarch64 |
+| GitHub IP ranges (from `api.github.com/meta`) | `git`, `gh` CLI |
+
+Everything else is immediately rejected (`icmp-admin-prohibited`), giving a clear error rather than a silent hang.
+
+## Why model weights do not need to be allowlisted
+
+HuggingFace Hub and the tiktoken blob endpoint are CDN-backed with rotating IPs that are impractical to allowlist reliably. Instead, weights are downloaded during `postCreateCommand` (before the firewall is applied) into persisted volumes, so runtime and agent sessions never need to reach those endpoints.
+
+## Re-applying the firewall
+
+iptables rules do not survive container restarts. The firewall is re-applied automatically on each start via `postStartCommand`.
+
+## Linux capabilities
+
+The firewall requires four Linux capabilities beyond the hardened `--cap-drop=ALL` baseline:
+
+- `NET_ADMIN` — needed to modify iptables rules and ipsets
+- `NET_RAW` — needed by iptables for raw socket operations
+- `SETUID` — needed by `sudo` to switch from `appuser` to root
+- `SETGID` — needed by `sudo` to switch the group to root
+
+`NET_ADMIN` is the most significant of these — it allows rewriting firewall rules. The firewall itself is the compensating control for granting it. `SETUID`/`SETGID` are constrained by the sudoers entry, which limits passwordless sudo to the firewall script path only.
+
+## Firewall script location
+
+The script is baked into the image at `/usr/local/bin/init-firewall.sh` as a root-owned file. `appuser` is granted passwordless `sudo` for that exact path only (via `/etc/sudoers.d/init-firewall`). Because the script is image-resident rather than sourced from the bind-mounted workspace, `appuser` cannot modify it.
 
 ---
 

@@ -5,7 +5,14 @@
   },
   "workspaceFolder": "/rag-system",
   "remoteUser": "appuser",
-  "runArgs": ["--cap-drop=ALL"],
+  "runArgs": [
+    "--cap-drop=ALL",
+    "--cap-add=NET_ADMIN",
+    "--cap-add=NET_RAW",
+    "--cap-add=SETUID",
+    "--cap-add=SETGID"
+  ],
+  "postStartCommand": "sudo /usr/local/bin/init-firewall.sh",
   "containerEnv": {
     "TIKTOKEN_CACHE_DIR": "/home/appuser/.cache/tiktoken"
   },
