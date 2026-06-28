@@ -17,7 +17,8 @@
     "TIKTOKEN_CACHE_DIR": "/home/appuser/.cache/tiktoken",
     "CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC": "1",
     "DISABLE_AUTOUPDATER": "1",
-    "HF_HUB_OFFLINE": "1"
+    "HF_HUB_OFFLINE": "1",
+    "CLAUDE_CONFIG_DIR": "/home/appuser/.claude"
   },
   "postCreateCommand": "uv sync && npm --prefix frontend ci && uv run python -m backend.app.prefetch_models",
   "mounts": [

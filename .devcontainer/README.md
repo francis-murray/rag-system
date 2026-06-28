@@ -243,6 +243,7 @@ docker run -d \
   -e HF_HUB_OFFLINE=1 \
   -e CLAUDE_CODE_DISABLE_NONESSENTIAL_TRAFFIC=1 \
   -e DISABLE_AUTOUPDATER=1 \
+  -e CLAUDE_CONFIG_DIR=/home/appuser/.claude \
   -w /rag-system \
   rag-system-image \
   sleep infinity
